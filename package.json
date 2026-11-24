@@ -1,0 +1,25 @@
+{
+  "name": "@shevernitskiy/twitch-hermes",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Twitch Hermes websocket client",
+  "license": "MIT",
+  "author": "shevernitskiy",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shevernitskiy/twitch-hermes"
+  },
+  "type": "module",
+  "module": "./src/hermes.ts",
+  "scripts": {
+    "format": "bun fmt",
+    "typecheck": "bun check"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.6.6"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  }
+}
