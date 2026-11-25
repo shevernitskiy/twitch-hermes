@@ -65,7 +65,7 @@ npm install @shevernitskiy/twitch-hermes
 ### JSR (Bun / Deno / any JSR-compatible runtime)
 
 ```bash
-bun add jsr:@shevernitskiy/twitch-hermes
+bunx jsr add @shevernitskiy/twitch-hermes
 deno add jsr:@shevernitskiy/twitch-hermes
 ```
 
@@ -86,15 +86,11 @@ import { HermesWebSocket } from "@shevernitskiy/twitch-hermes";
 
 const hermes = new HermesWebSocket();
 
-hermes.onChannelEvent(
-  "video-playback-by-id",
-  "600513126",
-  (event, channelId) => {
-    if (event.type === "viewcount") {
-      console.log(channelId, event.viewers);
-    }
-  },
-);
+hermes.onChannelEvent("video-playback-by-id", "600513126", (event, channelId) => {
+  if (event.type === "viewcount") {
+    console.log(channelId, event.viewers);
+  }
+});
 
 hermes.onChannelEvent("polls", "600513126", (event) => {
   if (event.type === "POLL_CREATE") {
