@@ -13,7 +13,8 @@
   "module": "./src/hermes.ts",
   "scripts": {
     "format": "bun fmt",
-    "typecheck": "bun check"
+    "typecheck": "bun check",
+    "build:npm": "bun run scripts/build-npm.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

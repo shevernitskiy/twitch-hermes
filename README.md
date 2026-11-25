@@ -9,8 +9,8 @@
 
 A thin, fully-typed TypeScript client for **Twitch Hermes** — the WebSocket transport behind Twitch PubSub.
 
-Zero runtime dependencies. Published as TypeScript source, so Bun, Deno and bundlers consume it as-is; Node 22+ needs
-its TypeScript support (type stripping) enabled.
+Zero runtime dependencies. The JSR package ships TypeScript source, so Bun, Deno and bundlers consume it as-is; the npm
+package ships compiled ESM with type declarations and runs on Node 22+.
 
 - Typed topic map — unknown topics are rejected by the compiler and each handler gets the payload type of its topic;
 - Typed PubSub payloads for every event modelled in [`src/types.ts`](./src/types.ts);
@@ -74,8 +74,8 @@ import { HermesWebSocket } from "@shevernitskiy/twitch-hermes";
 ```
 
 > [!NOTE]
-> The package is published as TypeScript source, without a build step. Bun, Deno and TypeScript bundlers import it
-> directly; plain Node needs type stripping enabled.
+> The JSR package is published as TypeScript source, without a build step: Bun, Deno and TypeScript bundlers import
+> it directly. The npm package is compiled to ESM with `.d.ts` declarations and works in plain Node 22+.
 
 ---
 
