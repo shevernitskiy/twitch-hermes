@@ -211,6 +211,7 @@ Lifecycle and diagnostics, in `node:events` map format:
 | `notification`          | `HermesMessageNotification`         | Any raw notification, typed or not.                                     |
 | `authenticate-response` | `HermesMessageAuthenticateResponse` | The server answered `authenticate`.                                     |
 | `subscribe-response`    | `(message, topic, targetId)`        | The server answered `subscribe`; topic and target are resolved for you. |
+| `unsubscribe-response`  | `HermesMessageUnsubscribeResponse`  | The server answered `unsubscribe`.                                      |
 | `error`                 | `HermesWebSocketError`              | Socket error, malformed JSON, throwing listener, fatal give-up.         |
 
 > [!NOTE]
@@ -249,6 +250,7 @@ still listed where they are known).
 | `content-classification-labels-v1` | channel id        | 🔓   | ✅ `ContentClassificationLabelsEvent`   | `channel-ccls-updated`                                                                           |
 | `creator-goals-events-v1`          | channel id        | 🔓   | ✅ `CreatorGoalsEvent`                  | `goal_updated` + `goal_created`, `goal_achieved`, `goal_finished`                                |
 | `follows`                          | user id           | 🔑   |                                         | not modelled                                                                                     |
+| `guest-star-channel-v1`            | channel id        | 🔓   | ✅ `GuestStarChannelEvent`              | `favorite-channel-update`                                                                        |
 | `hype-train-events-v1`             | channel id        | 🔓   |                                         | not modelled, legacy — prefer `-v2`                                                              |
 | `hype-train-events-v2`             | channel id        | 🔓   | ✅ `HypeTrainEvent`                     | `hype-train-approaching`, `hype-train-start`, `hype-train-level-up`, `hype-train-end` + 4 more   |
 | `leaderboard-events-v1`            | subtopic          | 🔓   | ✅ `LeaderboardEvent`                   | `clips-leaderboard-update`, `sub-gifts-sent`, `bits-usage-by-channel-v1`                         |

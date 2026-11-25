@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   HermesWebSocket,
   HermesWebSocketError,
+  type HermesMessageSubscribe,
   type HermesOptions,
 } from "../src/hermes.ts";
 
@@ -314,9 +315,33 @@ describe("dispatch", () => {
       subscribeResponse: {
         subscription: { id: s.subIdFor("polls.100") },
         result: "ok",
+        topic: "polls.100",
       },
     });
     expect(got).toEqual([["polls", "100"]]);
+  });
+
+  test("unsubscribe-response is emitted", () => {
+    const { client, sockets } = setup();
+    const results: string[] = [];
+    client.on("unsubscribe-response", (message) =>
+      results.push(message.unsubscribeResponse.result),
+    );
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    const s = sockets[0]!;
+    handshake(s);
+    s.recv({
+      type: "unsubscribeResponse",
+      id: "r",
+      timestamp: "",
+      parentId: "u",
+      unsubscribeResponse: {
+        subscription: { id: s.subIdFor("polls.100") },
+        result: "ok",
+      },
+    });
+    expect(results).toEqual(["ok"]);
   });
 
   test("malformed JSON becomes a non-fatal error event, client keeps working", () => {
@@ -871,6 +896,20 @@ describe("giving up", () => {
 
 export function typeChecks(): void {
   const c = new HermesWebSocket();
+  const extensionSubscribe = {
+    type: "subscribe",
+    id: "outer",
+    timestamp: "",
+    subscribe: {
+      id: "inner",
+      type: "extension",
+      extension: {
+        topic: "channel-ext-v1.extension-broadcast",
+        token: "token",
+      },
+    },
+  } satisfies HermesMessageSubscribe;
+  void extensionSubscribe;
   // @ts-expect-error user topic is not a channel topic
   c.onChannelEvent("community-points-user-v1", "1", noop);
   // @ts-expect-error channel topic is not a user topic
@@ -898,6 +937,18 @@ export function typeChecks(): void {
     void type;
   });
   c.onChannelEvent("leaderboard-events-v1", "clips-1", (e) => void e);
+  c.onChannelEvent("guest-star-channel-v1", "1", (e) => {
+    if (e.type === "favorite-channel-update") {
+      const channelId: string = e.data.channel_id;
+      void channelId;
+    }
+  });
+  c.onChannelEvent("video-playback-by-id", "2", (e) => {
+    if (e.type === "stream-up") {
+      const delay: number = e.play_delay;
+      void delay;
+    }
+  });
   c.onUserEvent("viewer-milestones", (e) => void e.data);
   c.on("error", (e) => void e.fatal);
 }

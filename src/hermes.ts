@@ -9,6 +9,7 @@ import type {
   CommunityPointsUserEvent,
   ContentClassificationLabelsEvent,
   CreatorGoalsEvent,
+  GuestStarChannelEvent,
   HermesMessage,
   HermesMessageAuthenticateResponse,
   HermesMessageKeepalive,
@@ -16,6 +17,7 @@ import type {
   HermesMessagePubsub,
   HermesMessageReconnect,
   HermesMessageSubscribeResponse,
+  HermesMessageUnsubscribeResponse,
   HermesMessageWelcome,
   HypeTrainEvent,
   LeaderboardEvent,
@@ -62,11 +64,12 @@ export interface ChannelTopics {
   "content-classification-labels-v1": ContentClassificationLabelsEvent;
   /** Creator goals. Also emits `goal_created`, `goal_achieved`, `goal_finished`. */
   "creator-goals-events-v1": CreatorGoalsEvent;
+  "guest-star-channel-v1": GuestStarChannelEvent;
   /** Hype Train lifecycle. */
   "hype-train-events-v2": HypeTrainEvent;
   /** Clips, gift subs and bits leaderboards. Key is a subtopic, e.g. `clips-<channelId>`. */
   "leaderboard-events-v1": LeaderboardEvent;
-  /** Pinned chat messages. Also emits `update-message`. */
+  /** Pinned chat messages. */
   "pinned-chat-updates-v1": PinChatUpdatesEvent;
   /** Polls of the channel. */
   polls: PollEvent;
@@ -78,7 +81,7 @@ export interface ChannelTopics {
   shoutout: ShoutoutEvent;
   /** Chat room modes and rich embeds. */
   "stream-chat-room-v1": StreamChatRoomEvent;
-  /** Viewer count and commercial breaks. Also emits `stream-up`, `stream-down`. */
+  /** Viewer count, stream state and commercial breaks. */
   "video-playback-by-id": VideoPlaybackByIdEvent;
 }
 
@@ -125,6 +128,7 @@ export type HermesEvents = {
     topic: string,
     targetId: string,
   ];
+  "unsubscribe-response": [message: HermesMessageUnsubscribeResponse];
   /** Emitted only if somebody listens (otherwise logged), so a network blip never crashes the process. */
   error: [error: HermesWebSocketError];
 };
@@ -649,6 +653,9 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
           );
           break;
         }
+        case "unsubscribeResponse":
+          this.emit("unsubscribe-response", msg);
+          break;
         case "authenticateResponse":
           this.emit("authenticate-response", msg);
           break;
