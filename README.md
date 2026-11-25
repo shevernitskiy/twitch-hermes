@@ -1,26 +1,27 @@
-# 🧾 Evotor
+# 📡 twitch-hermes
 
-[![npm](https://img.shields.io/npm/v/@shevernitskiy/evotor?logo=npm&style=flat&labelColor=000)](https://www.npmjs.com/package/@shevernitskiy/evotor)
-[![JSR](https://jsr.io/badges/@shevernitskiy/evotor)](https://jsr.io/@shevernitskiy/evotor)
-![bun](https://img.shields.io/badge/bun-1.4.4-black?style=flat&logo=bun&logoColor=white)
+[![npm](https://img.shields.io/npm/v/@shevernitskiy/twitch-hermes?logo=npm&style=flat&labelColor=000)](https://www.npmjs.com/package/@shevernitskiy/twitch-hermes)
+[![JSR](https://jsr.io/badges/@shevernitskiy/twitch-hermes)](https://jsr.io/@shevernitskiy/twitch-hermes)
+![bun](https://img.shields.io/badge/bun-1.4.5-black?style=flat&logo=bun&logoColor=white)
 ![dependencies](https://img.shields.io/badge/dependencies-0-green?style=flat&labelColor=000)
 ![types](https://img.shields.io/badge/types-TypeScript-blue?style=flat&labelColor=000)
-[![license](https://img.shields.io/github/license/shevernitskiy/evotor?style=flat&labelColor=000)](https://github.com/shevernitskiy/evotor/blob/main/LICENSE)
+[![license](https://img.shields.io/github/license/shevernitskiy/twitch-hermes?style=flat&labelColor=000)](https://github.com/shevernitskiy/twitch-hermes/blob/main/LICENSE)
 
-A thin, fully-typed TypeScript client for the [Evotor Cloud](https://developer.evotor.ru/docs/rest_overview.html) REST API.
+A thin, fully-typed TypeScript client for **Twitch Hermes** — the WebSocket transport behind Twitch PubSub.
 
-Zero dependencies, works on any runtime with a standard `fetch` (Node 18+, Bun, Deno).
+Zero runtime dependencies. Published as TypeScript source, so Bun, Deno and bundlers consume it as-is; Node 22+ needs
+its TypeScript support (type stripping) enabled.
 
-- Typed entities, requests and responses — no `any`, no manual casts;
-- Two versions of the Cloud API: `v1` (legacy reference) and `v2` (current reference);
-- Sections mirroring the official docs of each version;
-- Automatic rate-limit handling based on the `X-RateLimit-*` headers;
-- Typed webhook payloads for every incoming webhook;
-- Pluggable `fetch` — easy to test and to use in mock environments.
+- Typed topic map — unknown topics are rejected by the compiler and each handler gets the payload type of its topic;
+- Typed PubSub payloads for every event modelled in [`src/types.ts`](./src/types.ts);
+- 🔓 Public channel topics without a token and 🔑 user topics with OAuth;
+- Automatic soft reconnect on the server's `reconnect` message and hard reconnect with backoff;
+- Keepalive watchdog that detects a silently dead socket;
+- Pluggable socket factory — proxies, tests and custom transports.
 
 > [!NOTE]
-> The library covers the endpoints that are part of the public Evotor Cloud API. If something is missing or
-> mistyped, please open an issue or send a PR — contributions are welcome.
+> This is an unofficial client. The Hermes protocol is reverse-engineered from the Twitch Web client and may change
+> without notice. If a topic or payload is missing or mistyped, please open an issue or send a PR.
 
 ---
 
@@ -28,28 +29,28 @@ Zero dependencies, works on any runtime with a standard `fetch` (Node 18+, Bun, 
 
 ### Library
 
-- [x] npm & JSR publishing
-- [x] Zero dependencies
-- [x] TypeScript types for entities, requests and responses
-- [x] Typed webhook payloads
-- [x] Rate limit handling
-- [x] Typed errors
-- [x] Tests (on a replaced `fetch`)
-- [x] README
+- [x] Typed channel & user topic maps
+- [x] Typed PubSub payloads
+- [x] OAuth for user topics
+- [x] Keepalive watchdog
+- [x] Soft reconnect (`reconnect` message)
+- [x] Hard reconnect with exponential backoff
+- [x] Custom socket factory (proxy, fake sockets in tests)
+- [x] Tests on a fake WebSocket
+- [ ] Subscribe rate limiting / batching
+- [ ] Twitch Extension JWT topics
+- [ ] Payload types for every known topic
 
-### API
+### Topics
 
-- [x] V1 — Account — stores, employees, devices
-- [x] V1 — Products — get / upload / delete
-- [x] V1 — Documents — get
-- [x] V1 — Product schemes — get / upload / delete
-- [x] V1 — Product extras — get / upload / delete
-- [x] V1 — OFD — stores, devices, documents
-- [x] V2 — Stores, devices, employees
-- [x] V2 — Documents, products, product groups
-- [x] V2 — Bulk tasks, push notifications, application events
-- [ ] Webhook handling (receiving side)
-- [ ] Token refresh / OAuth flow
+- [x] Channel Points (channel + user)
+- [x] Predictions (channel)
+- [x] Polls, raids, shoutouts, pinned chat
+- [x] Hype Train, creator goals, celebrations
+- [x] Video playback, ads, stream settings
+- [x] Onsite notifications, drops, milestones
+- [x] Leaderboards, gift subs, content labels
+- [ ] Whispers, AutoMod, unban requests (topics known, payloads not modelled)
 
 ---
 
@@ -58,488 +59,298 @@ Zero dependencies, works on any runtime with a standard `fetch` (Node 18+, Bun, 
 ### npm
 
 ```bash
-npm install @shevernitskiy/evotor
+npm install @shevernitskiy/twitch-hermes
 ```
 
 ### JSR (Bun / Deno / any JSR-compatible runtime)
 
 ```bash
-bun add jsr:@shevernitskiy/evotor
-deno add jsr:@shevernitskiy/evotor
+bun add jsr:@shevernitskiy/twitch-hermes
+deno add jsr:@shevernitskiy/twitch-hermes
 ```
 
 ```ts
-import { Evotor } from "@shevernitskiy/evotor";
+import { HermesWebSocket } from "@shevernitskiy/twitch-hermes";
 ```
+
+> [!NOTE]
+> The package is published as TypeScript source, without a build step. Bun, Deno and TypeScript bundlers import it
+> directly; plain Node needs type stripping enabled.
 
 ---
 
 ## 🚀 Quick start
 
 ```ts
-import { Evotor } from "@shevernitskiy/evotor";
+import { HermesWebSocket } from "@shevernitskiy/twitch-hermes";
 
-const evotor = new Evotor(token);
+const hermes = new HermesWebSocket();
 
-// V1 — legacy reference
-const stores = await evotor.v1.account.getStores();
-const employees = await evotor.v1.account.getEmployees();
-const devices = await evotor.v1.account.getDevices();
+hermes.onChannelEvent(
+  "video-playback-by-id",
+  "600513126",
+  (event, channelId) => {
+    if (event.type === "viewcount") {
+      console.log(channelId, event.viewers);
+    }
+  },
+);
 
-const products = await evotor.v1.products.getProducts(stores[0]!.uuid);
-const documents = await evotor.v1.products.getDocuments(stores[0]!.uuid, {
-  types: ["SELL"],
+hermes.onChannelEvent("polls", "600513126", (event) => {
+  if (event.type === "POLL_CREATE") {
+    console.log("new poll:", event.data.poll.title);
+  }
 });
 
-// V2 — current reference
-const v2Stores = await evotor.v2.stores.getStores();
-const v2Products = await evotor.v2.products.getProducts(v2Stores.items[0]!.id);
+hermes.on("error", (error) => console.error(error));
+hermes.on("new-session", (sessionId) => console.log("session:", sessionId));
+
+hermes.start();
 ```
 
-The client is created with a **token**: V1 requests send it in the `X-Authorization` header, V2 requests — in
-`Authorization: Bearer`. Tokens are issued per application in the Evotor developer account.
+`event` is narrowed to the payload of the chosen topic, so the editor and the compiler know its shape.
+
+### User topics (OAuth)
+
+User topics require a token and the id of the user who owns it. The token is sent once per session, right after
+`welcome` and before any subscribe:
+
+```ts
+const hermes = new HermesWebSocket({
+  auth: { token: process.env.TWITCH_TOKEN!, userId: "42" },
+});
+
+hermes.onUserEvent("community-points-user-v1", (event) => {
+  if (event.type === "points-earned") {
+    console.log("balance:", event.data.balance.balance);
+  }
+});
+
+hermes.start();
+```
+
+### Stopping
+
+```ts
+const off = hermes.onChannelEvent("polls", "600513126", handler);
+
+off(); // removes the listener; the last listener drops the wire subscription
+hermes.stop(); // closes the socket and prevents reconnects
+```
 
 ---
 
-## 🏗️ Client structure
+## 🧠 How it works
+
+Hermes is a WebSocket that multiplexes PubSub topics:
+
+1. The socket opens, the server sends `welcome` with `sessionId` and `keepaliveSec`.
+2. With `auth`, the client sends `authenticate` before anything else.
+3. Every `onChannelEvent()` / `onUserEvent()` listener becomes a `subscribe` for `<topic>.<key>`. Duplicate listeners
+   share one wire subscription.
+4. `notification` messages carry the subscription id and a JSON string in `notification.pubsub`. The client parses it
+   and calls every listener of that subscription with `(payload, key)`.
+5. `keepalive` messages (and any other traffic) prove the link is alive; silence longer than the threshold triggers a
+   reconnect.
+6. On `reconnect` the client opens the new socket while the old one keeps delivering events, then closes the old one
+   after the new session says `welcome`. Nothing is resubscribed — the session continues.
+7. On a hard reconnect (network drop, stalled socket, timeout) the client starts a new session: fresh subscription ids
+   and a full resubscribe after `welcome`.
+
+The client tracks listeners, not individual messages. A subscription exists exactly while at least one listener is
+attached to it, and it is recreated automatically in every new session.
+
+---
+
+## ⚙️ API
 
 ```ts
-const evotor = new Evotor(token, options);
-
-evotor.v1.account; // Сущности пользователя: магазины, сотрудники, смарт-терминалы
-evotor.v1.products; // Товары, документы, схемы и дополнительные поля
-evotor.v1.ofd; // Данные ОФД: магазины, смарт-терминалы, документы
-evotor.v1.raw; // Кастомные запросы к Облаку Эвотор V1
-evotor.v1.ofd_raw; // Кастомные запросы к ОФД
-
-evotor.v2.stores; // Магазины
-evotor.v2.devices; // Смарт-терминалы
-evotor.v2.employees; // Сотрудники
-evotor.v2.documents; // Документы
-evotor.v2.products; // Товары и модификации товаров
-evotor.v2.product_groups; // Группы товаров и группы модификаций
-evotor.v2.bulks; // Задачи для массовых операций
-evotor.v2.push; // Push-уведомления
-evotor.v2.events; // События приложения
-evotor.v2.raw; // Кастомные запросы к API Облака Эвотор V2
+const hermes = new HermesWebSocket({
+  auth: { token: "oauth:...", userId: "42" },
+  log: (...args) => console.log(...args),
+});
 ```
-
-Each section is a separate class with methods named after the API operation, so the code reads like the docs.
-The sections of each version mirror the sections of the corresponding documentation:
-
-- V1 — [api.evotor.ru/docs](https://api.evotor.ru/docs/);
-- V2 — [developer.evotor.ru/docs](https://developer.evotor.ru/docs/rest_overview.html).
 
 ### Constructor options
 
-```ts
-const controller = new AbortController();
+| Option                | Type                                | Default                         | Description                                                                            |
+| --------------------- | ----------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------- |
+| `auth`                | `{ token: string; userId: string }` | —                               | OAuth token and its owner. Required for 🔑 user topics.                                |
+| `clientId`            | `string`                            | Twitch Web client id            | Sent as the `clientId` query parameter.                                                |
+| `headers`             | `Record<string, string>`            | `Origin` + browser `User-Agent` | Merged over the default handshake headers.                                             |
+| `createWebSocket`     | `(url, headers) => WebSocket`       | global `WebSocket`              | Custom socket factory for proxies, Undici dispatchers, Bun options or a fake in tests. |
+| `maxRetries`          | `number`                            | `5`                             | Consecutive failed reconnects before giving up. `Infinity` is allowed.                 |
+| `reconnectDelayMs`    | `number`                            | `5000`                          | Base of the exponential backoff. The first retry is immediate.                         |
+| `maxReconnectDelayMs` | `number`                            | `30000`                         | Backoff ceiling.                                                                       |
+| `connectTimeoutMs`    | `number`                            | `10000`                         | Max time from opening the socket to `welcome`.                                         |
+| `keepaliveTimeoutMs`  | `number`                            | `2 × keepaliveSec`              | Silence threshold; longer silence means a dead connection.                             |
+| `log`                 | `(...args: unknown[]) => void`      | —                               | Diagnostic logger. Errors are logged here when nobody listens to the `error` event.    |
 
-const evotor = new Evotor(token, {
-  ofd_token: ofdToken,
-  v2_token: v2Token,
-  fetch: mockFetch,
-  base_url: "https://proxy.local",
-  headers: { "X-Request-Id": "my-request-id" },
-  timeout: 30_000,
-  signal: controller.signal,
-});
-```
+### Methods
 
-| Option      | Type                     | Description                                                                                                   |
-| ----------- | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `ofd_token` | `string`                 | Token for the OFD section. If omitted, the main token is used.                                                |
-| `v2_token`  | `string`                 | Token for API Cloud V2. If omitted, the main token is used.                                                   |
-| `fetch`     | `typeof fetch`           | Replaces the global `fetch` — useful for tests, mocks and custom transports (proxy, retries).                 |
-| `base_url`  | `string`                 | Base URL of the API. Defaults to `https://api.evotor.ru`. Useful for a proxy or a sandbox.                    |
-| `headers`   | `Record<string, string>` | Extra headers that override the default ones (`X-Authorization` / `Authorization`, `Accept`, `Content-Type`). |
-| `timeout`   | `number`                 | Request timeout in milliseconds. The request is aborted when it expires.                                      |
-| `signal`    | `AbortSignal`            | Signal to cancel in-flight requests.                                                                          |
+| Method                                        | Returns       | Description                                                                                             |
+| --------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------- |
+| `onChannelEvent(topic, channelId, handler)`   | `Unsubscribe` | Listen to a 🔓 channel topic. `channelId` is appended to the topic; for leaderboards pass the subtopic. |
+| `onceChannelEvent(topic, channelId, handler)` | `Unsubscribe` | Same, but removed after the first event.                                                                |
+| `onUserEvent(topic, handler)`                 | `Unsubscribe` | Listen to a 🔑 topic of `auth.userId`. Throws `HermesWebSocketError` without `auth`.                    |
+| `onceUserEvent(topic, handler)`               | `Unsubscribe` | Same, but removed after the first event.                                                                |
+| `start()`                                     | `this`        | Opens the connection. Needs at least one listener, otherwise throws `HermesWebSocketError`.             |
+| `stop()`                                      | `void`        | Closes the socket, cancels reconnects, keeps listeners for a later `start()`.                           |
+| `connected`                                   | `boolean`     | `true` while the socket is running or soft-reconnecting.                                                |
+
+`Unsubscribe` is idempotent: the second call does nothing, and a stale disposer cannot remove a newer subscription
+for the same topic.
+
+### Client events
+
+Lifecycle and diagnostics, in `node:events` map format:
+
+| Event                   | Arguments                           | When                                                                    |
+| ----------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
+| `new-session`           | `sessionId`                         | A new Hermes session started (initial connect or hard reconnect).       |
+| `welcome`               | `HermesMessageWelcome`              | Any `welcome`, including a soft reconnect.                              |
+| `reconnect`             | `HermesMessageReconnect`            | The server asked the client to move to another socket.                  |
+| `keepalive`             | `HermesMessageKeepalive`            | The server sent a keepalive.                                            |
+| `close`                 | `CloseEvent`                        | A socket closed, before the reconnect decision.                         |
+| `notification`          | `HermesMessageNotification`         | Any raw notification, typed or not.                                     |
+| `authenticate-response` | `HermesMessageAuthenticateResponse` | The server answered `authenticate`.                                     |
+| `subscribe-response`    | `(message, topic, targetId)`        | The server answered `subscribe`; topic and target are resolved for you. |
+| `error`                 | `HermesWebSocketError`              | Socket error, malformed JSON, throwing listener, fatal give-up.         |
 
 > [!NOTE]
-> V1 requests are authorized with the `X-Authorization` header, V2 requests — with `Authorization: Bearer <token>`
-> and the `Accept`/`Content-Type` headers `application/vnd.evotor.v2+json`.
+> `error` is emitted only if a listener exists. Without one the error is passed to `log`, so a network blip never
+> crashes the process.
 
 ---
 
-## 📚 API V1
+## 🗺️ Topics
 
-### `v1.account` — user entities
+Auth legend: 🔓 `NONE` — no token; 🔑 `OAUTH` — user OAuth token; 🧩 `EXTENSION_JWT` — extension JWT.
 
-| Method           | Endpoint                                   |
-| ---------------- | ------------------------------------------ |
-| `getStores()`    | `GET /api/v1/inventories/stores/search`    |
-| `getEmployees()` | `GET /api/v1/inventories/employees/search` |
-| `getDevices()`   | `GET /api/v1/inventories/devices/search`   |
+A topic is `<prefix>.<key>`. `onChannelEvent("polls", "600513126")` subscribes to `polls.600513126`;
+`onUserEvent("community-points-user-v1", handler)` subscribes to `community-points-user-v1.<auth.userId>`.
 
-```ts
-const stores = await evotor.v1.account.getStores();
-console.log(stores[0]?.name, stores[0]?.uuid);
-```
+### Topic map
 
-### `v1.products` — products, documents, schemes and extras
+✅ means the payload is typed. An empty cell means the event reaches the handler as `unknown` (the event names are
+still listed where they are known).
 
-| Method                                | Endpoint                                                              |
-| ------------------------------------- | --------------------------------------------------------------------- |
-| `getProducts(storeUuid)`              | `GET /api/v1/inventories/stores/{storeUuid}/products`                 |
-| `uploadProducts(storeUuid, products)` | `POST /api/v1/inventories/stores/{storeUuid}/products`                |
-| `deleteProducts(storeUuid, products)` | `POST /api/v1/inventories/stores/{storeUuid}/products/delete`         |
-| `getDocuments(storeUuid, params?)`    | `GET /api/v1/inventories/stores/{storeUuid}/documents`                |
-| `getSchemes(storeUuid)`               | `GET /api/v1/inventories/stores/{storeUuid}/products/schemes`         |
-| `uploadSchemes(storeUuid, schemas)`   | `POST /api/v1/inventories/stores/{storeUuid}/products/schemes`        |
-| `deleteSchemes(storeUuid, schemas)`   | `POST /api/v1/inventories/stores/{storeUuid}/products/schemes/delete` |
-| `getExtras(storeUuid)`                | `GET /api/v1/inventories/stores/{storeUuid}/products/extras`          |
-| `uploadExtras(storeUuid, extras)`     | `POST /api/v1/inventories/stores/{storeUuid}/products/extras`         |
-| `deleteExtras(storeUuid, extras)`     | `POST /api/v1/inventories/stores/{storeUuid}/products/extras/delete`  |
+| Topic                              | Key               | Auth | Payload                                 | Emits                                                                                            |
+| ---------------------------------- | ----------------- | ---- | --------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `ads`                              | channel id        | 🔓   | ✅ `AdsEvent`                           | `midroll_request`, `ads-schedule-update`                                                         |
+| `automod-queue`                    | user id + channel | 🔑   |                                         | not modelled                                                                                     |
+| `broadcast-settings-update`        | channel id        | 🔓   | ✅ `BroadcastSettingsUpdateEvent`       | `broadcast_settings_update`                                                                      |
+| `celebration-events-v1`            | channel id        | 🔓   | ✅ `CelebrationEvent`                   | `alert_sets_celebration`, `celebrations_message`                                                 |
+| `channel-bits-events-v1`           | user id           | 🔑   |                                         | not modelled                                                                                     |
+| `channel-bits-events-v2`           | user id           | 🔑   |                                         | not modelled                                                                                     |
+| `channel-drop-events`              | channel id        | 🔓   |                                         | not modelled                                                                                     |
+| `channel-ext-v1`                   | extension id      | 🧩   |                                         | not modelled, not supported by the client                                                        |
+| `channel-sub-gifts-v1`             | channel id        | 🔓   | ✅ `ChannelSubGiftsEvent`               | `mystery-gift-purchase`, `gift-event`                                                            |
+| `channel-subscribe-events-v1`      | user id           | 🔑   |                                         | not modelled                                                                                     |
+| `chat_moderator_actions`           | user id + channel | 🔑   |                                         | not modelled                                                                                     |
+| `community-points-channel-v1`      | channel id        | 🔓   | ✅ `CommunityPointsChannelEvent`        | `community-goal-contribution`, `custom-reward-updated`, `reward-redeemed` + 12 more              |
+| `community-points-user-v1`         | user id           | 🔑   | ✅ `CommunityPointsUserEvent`           | `points-earned`, `claim-available`, `claim-claimed` + 18 more                                    |
+| `content-classification-labels-v1` | channel id        | 🔓   | ✅ `ContentClassificationLabelsEvent`   | `channel-ccls-updated`                                                                           |
+| `creator-goals-events-v1`          | channel id        | 🔓   | ✅ `CreatorGoalsEvent`                  | `goal_updated` + `goal_created`, `goal_achieved`, `goal_finished`                                |
+| `follows`                          | user id           | 🔑   |                                         | not modelled                                                                                     |
+| `hype-train-events-v1`             | channel id        | 🔓   |                                         | not modelled, legacy — prefer `-v2`                                                              |
+| `hype-train-events-v2`             | channel id        | 🔓   | ✅ `HypeTrainEvent`                     | `hype-train-approaching`, `hype-train-start`, `hype-train-level-up`, `hype-train-end` + 4 more   |
+| `leaderboard-events-v1`            | subtopic          | 🔓   | ✅ `LeaderboardEvent`                   | `clips-leaderboard-update`, `sub-gifts-sent`, `bits-usage-by-channel-v1`                         |
+| `onsite-notifications`             | user id           | 🔑   | ✅ `OnSiteNotificationEvent`            | `create-notification`, `update-summary` + `delete-notification`, `read-notifications`, …         |
+| `pinned-chat-updates-v1`           | channel id        | 🔓   | ✅ `PinChatUpdatesEvent`                | `pin-message`, `unpin-message`, `update-message`                                                 |
+| `polls`                            | channel id        | 🔓   | ✅ `PollEvent`                          | `POLL_CREATE`, `POLL_UPDATE`, `POLL_COMPLETE`, `POLL_ARCHIVE`, `POLL_TERMINATE`, `POLL_MODERATE` |
+| `predictions-channel-v1`           | channel id        | 🔓   | ✅ `PredictionEvent`                    | `event-created`, `event-updated`                                                                 |
+| `predictions-user-v1`              | user id           | 🔑   |                                         | `prediction-made`, `prediction-updated`, `prediction-result`                                     |
+| `private-callout`                  | user id           | 🔑   | ✅ `PrivateCalloutEvent`                | `send-private-callout`                                                                           |
+| `raid`                             | channel id        | 🔓   | ✅ `RaidUpdateV2Event \| RaidGoV2Event` | `raid_update_v2`, `raid_go_v2` + `raid_update`, `raid_cancel`, `raid_cancel_v2`                  |
+| `shoutout`                         | channel id        | 🔓   | ✅ `ShoutoutEvent`                      | `create`                                                                                         |
+| `stream-chat-room-v1`              | channel id        | 🔓   | ✅ `StreamChatRoomEvent`                | `chat_rich_embed`, `updated_room` + `updated_channel_chat_property`                              |
+| `subs-events-v1`                   | channel id        | 🔑   |                                         | not modelled                                                                                     |
+| `user-drop-events`                 | user id           | 🔑   | ✅ `UserDropEvent`                      | `drop-progress` + `drop-claim`, `drop-event`, `chest-roll-granted`                               |
+| `video-playback-by-id`             | channel id        | 🔓   | ✅ `VideoPlaybackByIdEvent`             | `viewcount`, `commercial` + `stream-up`, `stream-down`                                           |
+| `viewer-milestones`                | user id           | 🔑   | ✅ `ViewerMilestonesEvent`              | `watch-streak`, `viewer-milestones-update`, `streak-recovered`                                   |
+| `whispers`                         | user id           | 🔑   |                                         | not modelled                                                                                     |
 
-```ts
-// Загрузка товаров: при обновлении передаётся полный набор полей описания товара.
-await evotor.v1.products.uploadProducts(storeUuid, [
-  {
-    uuid: "4b77d9a7-568d-4830-aecc-c67fe87fe96f",
-    group: false,
-    name: "Молоко 3.2% 1 л",
-    price: 120,
-    tax: "VAT_10",
-    measureName: "шт",
-    allowToSell: true,
-  },
-]);
-
-// Удаление: пустой массив удаляет все товары магазина.
-await evotor.v1.products.deleteProducts(storeUuid, [{ uuid: "4b77d9a7-568d-4830-aecc-c67fe87fe96f" }]);
-```
+> [!TIP]
+> `leaderboard-events-v1` is the only channel-style topic whose key is not a bare id. Pass the subtopic:
+> `onChannelEvent("leaderboard-events-v1", "clips-600513126", handler)`, `"sub-gifts-sent-600513126-MONTH"` or
+> `"bits-usage-by-channel-v1-600513126-WEEK"`.
 
 > [!IMPORTANT]
-> When updating a product you must send the **full** set of fields — Evotor removes the old ones and writes the new ones.
+> `onUserEvent()` always builds `<topic>.<auth.userId>`, so one client serves one authenticated user. Composite
+> `<userId>.<channelId>` keys (`chat_moderator_actions`, `automod-queue`, `private-callout`, `viewer-milestones`) are
+> known to Twitch but not exposed by this client yet.
 
-**Documents selection**
-
-```ts
-const documents = await evotor.v1.products.getDocuments(storeUuid, {
-  deviceUuid: "3f9b0f1a-4a26-4a26-9e14-9e2f0b0a4d21",
-  types: ["SELL", "PAYBACK"],
-  gtCloseDate: "2024-01-01T00:00:00.000+03:00",
-  ltCloseDate: "2024-01-15T00:00:00.000+03:00",
-});
-```
-
-| Constraint            | Meaning                                  |
-| --------------------- | ---------------------------------------- |
-| no dates              | documents of the last month are returned |
-| available range       | documents not older than six months      |
-| max range per request | one month                                |
-
-### `v1.ofd` — OFD data
-
-The OFD section is authorized with a **separate OFD token**:
-
-```ts
-const evotor = new Evotor(token, { ofd_token: ofdToken });
-
-const ofdStores = await evotor.v1.ofd.getStores();
-const ofdDevices = await evotor.v1.ofd.getDevices();
-
-const ofdDocuments = await evotor.v1.ofd.getDocuments("1111", {
-  deviceId: "2222",
-  from: "2024-01-01T00:00:00.000+03:00",
-  to: "2024-01-02T00:00:00.000+03:00",
-  type: "SELL",
-});
-```
-
-| Method                | Endpoint                              |
-| --------------------- | ------------------------------------- |
-| `getStores()`         | `GET /api/v1/ofd/stores`              |
-| `getDevices()`        | `GET /api/v1/ofd/devices`             |
-| `getDocuments(id, p)` | `GET /api/v1/ofd/documents/{storeId}` |
+Topics without ✅ are known by prefix but have no payload type yet. The full catalog — `KnownDeviceTopics`,
+`KnownUserTopics`, `KnownChannelTopics`, `KnownExtensionTopics`, `KnownTopic` — is exported from
+[`src/types.ts`](./src/types.ts). To subscribe to a new prefix, add it to `ChannelTopics` / `UserTopics` in
+[`src/hermes.ts`](./src/hermes.ts) with its payload type; the runtime needs no changes.
 
 > [!NOTE]
-> The OFD selection window cannot exceed **seven days**. Available document types: `SELL` and `Z_REPORT`.
+> `channel-ext-v1` is a 🧩 Extension JWT topic, and the client does not support it: the handshake authenticates a
+> user OAuth token only.
 
 ---
 
-## 📚 API Cloud V2
+## 🧩 Types
 
-The V2 reference lives on [developer.evotor.ru](https://developer.evotor.ru/docs/rest_overview.html).
-The endpoints live on the same host as V1, but use new paths and the `application/vnd.evotor.v2+json`
-content type. Every list response is wrapped into `{ items, paging }`:
-
-```ts
-const { items, paging } = await evotor.v2.stores.getStores();
-
-if (paging.next_cursor !== undefined) {
-  const next = await evotor.v2.stores.getStores({ cursor: paging.next_cursor });
-}
-```
-
-### `v2.stores` — stores
-
-| Method               | Endpoint      |
-| -------------------- | ------------- |
-| `getStores(params?)` | `GET /stores` |
-
-### `v2.devices` — smart terminals
-
-| Method                | Endpoint       |
-| --------------------- | -------------- |
-| `getDevices(params?)` | `GET /devices` |
-
-### `v2.employees` — employees
-
-| Method                         | Endpoint                       |
-| ------------------------------ | ------------------------------ |
-| `getEmployees(params?)`        | `GET /employees`               |
-| `getEmployee(id)`              | `GET /employees/{employee-id}` |
-| `getRoles()`                   | `GET /employees/roles`         |
-| `createEmployee(employee)`     | `POST /employees`              |
-| `updateEmployee(id, employee)` | `PUT /employees/{employee-id}` |
-
-### `v2.documents` — documents
-
-| Method                                     | Endpoint                                               |
-| ------------------------------------------ | ------------------------------------------------------ |
-| `getDocuments(storeId, params?)`           | `GET /stores/{store-id}/documents`                     |
-| `getDocument(storeId, documentId)`         | `GET /stores/{store-id}/documents/{document-id}`       |
-| `getDeviceDocuments(storeId, deviceId, p)` | `GET /stores/{store-id}/devices/{device-id}/documents` |
-
-### `v2.products` — products and modifications
-
-| Method                                    | Endpoint                                          |
-| ----------------------------------------- | ------------------------------------------------- |
-| `getProducts(storeId, params?)`           | `GET /stores/{store-id}/products`                 |
-| `getProduct(storeId, productId)`          | `GET /stores/{store-id}/products/{product-id}`    |
-| `createProduct(storeId, product)`         | `POST /stores/{store-id}/products`                |
-| `createProducts(storeId, products)`       | `POST /stores/{store-id}/products` (bulk)         |
-| `putProducts(storeId, products)`          | `PUT /stores/{store-id}/products`                 |
-| `putProduct(storeId, productId, product)` | `PUT /stores/{store-id}/products/{product-id}`    |
-| `patchProduct(storeId, productId, body)`  | `PATCH /stores/{store-id}/products/{product-id}`  |
-| `deleteProducts(storeId, ids)`            | `DELETE /stores/{store-id}/products`              |
-| `deleteProduct(storeId, productId)`       | `DELETE /stores/{store-id}/products/{product-id}` |
-
-### `v2.product_groups` — product groups
-
-| Method                                       | Endpoint                                                      |
-| -------------------------------------------- | ------------------------------------------------------------- |
-| `getProductGroups(storeId, params?)`         | `GET /stores/{store-id}/product-groups`                       |
-| `getProductGroup(storeId, groupId)`          | `GET /stores/{store-id}/product-groups/{product-group-id}`    |
-| `createProductGroup(storeId, group)`         | `POST /stores/{store-id}/product-groups`                      |
-| `createProductGroups(storeId, groups)`       | `POST /stores/{store-id}/product-groups` (bulk)               |
-| `putProductGroups(storeId, groups)`          | `PUT /stores/{store-id}/product-groups`                       |
-| `putProductGroup(storeId, groupId, group)`   | `PUT /stores/{store-id}/product-groups/{product-group-id}`    |
-| `patchProductGroup(storeId, groupId, group)` | `PATCH /stores/{store-id}/product-groups/{product-group-id}`  |
-| `deleteProductGroups(storeId, ids)`          | `DELETE /stores/{store-id}/product-groups`                    |
-| `deleteProductGroup(storeId, groupId)`       | `DELETE /stores/{store-id}/product-groups/{product-group-id}` |
-
-### `v2.bulks` — bulk tasks
-
-| Method             | Endpoint               |
-| ------------------ | ---------------------- |
-| `getBulks(params)` | `GET /bulks`           |
-| `getBulk(id)`      | `GET /bulks/{bulk-id}` |
-
-### `v2.push` — push notifications
-
-| Method                                      | Endpoint                                                                   |
-| ------------------------------------------- | -------------------------------------------------------------------------- |
-| `getPush(appId, pushId)`                    | `GET /api/apps/{application_id}/push-notifications/{push-id}`              |
-| `sendPush(appId, push)`                     | `POST /api/apps/{application_id}/push-notifications`                       |
-| `sendPushToDevice(appId, deviceUuid, push)` | `POST /api/apps/{application_id}/devices/{device_uuid}/push-notifications` |
-
-### `v2.events` — application events
-
-| Method                     | Endpoint                                       |
-| -------------------------- | ---------------------------------------------- |
-| `getEvents(appId, params)` | `GET /apps/{application_id}/events`            |
-| `getEvent(appId, eventId)` | `GET /apps/{application_id}/events/{event_id}` |
-
-### Mass operations
-
-`createProducts`, `putProducts`, `createProductGroups` and `putProductGroups` are sent as mass operations — the
-`Content-Type` header gets the `+bulk` modifier, and the response contains a task that can be tracked with `v2.bulks`:
-
-```ts
-const task = await evotor.v2.products.putProducts(storeId, [
-  {
-    name: "Молоко 3.2% 1 л",
-    price: 120,
-    measure_name: "шт",
-    tax: "VAT_10",
-    allow_to_sell: true,
-    type: "NORMAL",
-  },
-]);
-
-const status = await evotor.v2.bulks.getBulk(task.id);
-```
-
-### Types
-
-Types of each version live in its own namespace — `v1` and `v2`:
-
-```ts
-import type { v1, v2 } from "@shevernitskiy/evotor";
-
-const store: v2.Store = {
-  id: "20170228-F4F1-401B-80FA-9ECCA8451FFB",
-  name: "Мой магазин",
-  user_id: "00-000000000000000",
-  created_at: "2018-04-17T10:11:49.393+0000",
-  updated_at: "2018-07-16T16:00:10.663+0000",
-};
-
-const legacy: v1.Store = { uuid: "b1c1f6a2-1f1e-4a7c-9b3e-0f6b2a5d7c11", name: "Мой магазин" };
-```
-
-Only fundamental entities live in the entities files — every method declares its parameters and the response
-type right in the signature, so the editor shows the whole shape on hover:
-
-```ts
-evotor.v2.products.patchProduct(storeId, productId, { quantity: 12 });
-//                        ^? { price?: number; cost_price?: number; quantity?: number }
-//                                                 ^? Promise<Product>
-```
-
----
-
-## 🧩 Custom requests
-
-Anything that is not covered by the typed sections can be requested through the raw REST client.
-It applies the same base URL, headers, rate limiting and error handling:
-
-```ts
-const data = await evotor.v1.raw.get({
-  url: "/api/v1/inventories/stores/search",
-  query: { someParam: "value" },
-});
-
-await evotor.v1.raw.post({
-  url: `/api/v1/inventories/stores/${storeUuid}/products`,
-  payload: { ... },
-});
-```
-
-`evotor.v1.ofd_raw` is the same client, but authorized with the OFD token.
-`evotor.v2.raw` is the same client, but authorized with the V2 token and the V2 content type.
-
-Available methods: `get`, `post`, `put`, `patch`, `delete`.
-Query arrays are joined with a comma, `undefined` values are skipped.
-
----
-
-## 🪝 Webhooks
-
-The library does **not** receive webhooks for you — the receiving side is organized by your service.
-What the library gives you is a typed payload for every incoming webhook:
+The root entry re-exports every public type, so a single import is enough:
 
 ```ts
 import type {
-  WebhookCommodity,
-  WebhookDevice,
-  WebhookDocument,
-  WebhookEmployee,
-  WebhookInstallationEvent,
-  WebhookReceipt,
-  WebhookStore,
-  WebhookSubscriptionEvent,
-  WebhookUserCreate,
-  WebhookUserToken,
-  WebhookUserVerify,
-} from "@shevernitskiy/evotor";
-
-const receipt: WebhookReceipt = await request.json();
+  HermesMessage,
+  KnownPubSubEvent,
+  KnownPubSubEventType,
+  PollEvent,
+  RaidGoV2Event,
+  RaidUpdateV2Event,
+} from "@shevernitskiy/twitch-hermes";
 ```
 
-`WebhookEventMap` maps every webhook address to its payload type:
+- `ChannelTopics` / `UserTopics` — maps of subscribable topics to payloads;
+- `KnownPubSubEvent` — union of every modelled PubSub payload;
+- `KnownPubSubEventType` — union of every known inner `type` discriminator;
+- `KnownRewindUpdateType` — rewind statuses of `rewind-updates-v1`;
+- `HermesTopicAuth` — `"NONE" | "OAUTH" | "EXTENSION_JWT"`;
+- `KnownDeviceTopics` / `KnownUserTopics` / `KnownChannelTopics` / `KnownExtensionTopics` / `KnownTopic` — the full
+  topic prefix catalog;
+- `HermesMessage` / `HermesClientMessage` — envelopes received from and sent to the server.
+
+Narrowing works on the inner `type`, because every modelled payload is a discriminated union:
 
 ```ts
-import type { WebhookEventMap } from "@shevernitskiy/evotor";
-
-function handle<K extends keyof WebhookEventMap>(address: K, payload: WebhookEventMap[K]) {
-  // payload is fully typed for the given address
-}
-```
-
-| Address                 | Payload                    |
-| ----------------------- | -------------------------- |
-| `user.verify`           | `WebhookUserVerify`        |
-| `user.create`           | `WebhookUserCreate`        |
-| `user.token`            | `WebhookUserToken`         |
-| `commodities`           | `WebhookCommodity`         |
-| `inventories.stores`    | `WebhookStore[]`           |
-| `inventories.employees` | `WebhookEmployee[]`        |
-| `inventories.devices`   | `WebhookDevice[]`          |
-| `inventories.documents` | `WebhookDocument[]`        |
-| `receipts`              | `WebhookReceipt`           |
-| `subscription.event`    | `WebhookSubscriptionEvent` |
-| `installation.event`    | `WebhookInstallationEvent` |
-
----
-
-## ⏱️ Rate limits
-
-The client reads the `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset` and `Retry-After` response headers.
-
-When no requests are left, the next call waits until the window is reset. The same happens when the API answers
-with `429` and `Retry-After` — the wait is applied to the next call, the failed one is reported as an error.
-Concurrent calls share a single timer, so the client never fires a burst of waiting requests.
-
-The limiter is transparent — there is nothing to configure and nothing to call. Each section (`v1`, `v2`, `ofd`)
-keeps its own limiter state, because Evotor counts limits per resource.
-
-### Documented API limits
-
-| Limit                              | Value                                            |
-| ---------------------------------- | ------------------------------------------------ |
-| Items per page (V2)                | 1000                                             |
-| Items per mass operation           | 1000 in the overview, 5000 on the endpoint pages |
-| Items in `DELETE ...?id=` (V2)     | 1000                                             |
-| Request body (V2)                  | 5 MB                                             |
-| Push notification payload          | 1900 characters                                  |
-| Devices per push notification      | 100                                              |
-| Push notifications per application | 100 per hour                                     |
-| V1 documents selection window      | 1 month per request, 6 months deep               |
-| OFD documents selection window     | 7 days                                           |
-
----
-
-## 🛡️ Error handling
-
-The client throws a typed error depending on the response:
-
-| Error               | When                                                                              |
-| ------------------- | --------------------------------------------------------------------------------- |
-| `AuthError`         | response status `401` or `403`                                                    |
-| `NotInstalledError` | response status `402`                                                             |
-| `ApiError`          | the response body is a JSON object or array (V2 `{ code, message }`, `errors`, …) |
-| `HttpError`         | any other error, including a non-JSON body                                        |
-
-All errors carry `status` and the parsed body in `response` (`HttpError` keeps the raw text when the body is not JSON).
-`message` is built as `<status> <statusText>: <message from the body>`.
-
-> [!NOTE]
-> `402` means different things in the two versions: in V2 the application is not installed or not paid for on all
-> devices of the store, in V1 the user's subscription has expired. The error class is the same, the body tells them apart.
-
-```ts
-import { ApiError, AuthError, HttpError, NotInstalledError } from "@shevernitskiy/evotor";
-
-try {
-  await evotor.v1.account.getStores();
-} catch (err) {
-  if (err instanceof AuthError) {
-    console.error("Auth failed:", err.status, err.response);
-  } else if (err instanceof NotInstalledError) {
-    console.error("Not installed / not paid:", err.status, err.response);
-  } else if (err instanceof ApiError) {
-    console.error("API error:", err.status, err.response);
-  } else if (err instanceof HttpError) {
-    console.error("HTTP error:", err.status, err.response);
-  } else {
-    console.error("Unknown error:", err);
+function onPoll(event: PollEvent) {
+  if (event.type === "POLL_COMPLETE") {
+    console.log(event.data.poll.status); // "COMPLETED"
   }
 }
 ```
+
+---
+
+## 🛡️ Errors & resilience
+
+All client errors are `HermesWebSocketError` with a `fatal` flag and an optional `cause`:
+
+| Situation                                | `fatal` | Behaviour                                                                               |
+| ---------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
+| Socket `error`                           | `false` | Reported; the close handler decides whether to reconnect.                               |
+| Malformed JSON / a listener threw        | `false` | Reported; the client keeps working and other listeners still run.                       |
+| `maxRetries` exhausted                   | `true`  | The client is closed and stops reconnecting.                                            |
+| Server closes with `4003` / `4004`       | —       | "Connection unused" — reconnecting would not help; the client stops (no `error` event). |
+| No `welcome` within `connectTimeoutMs`   | `false` | The socket is dropped and a retry is scheduled.                                         |
+| Silence longer than `keepaliveTimeoutMs` | `false` | The socket is considered dead and a retry is scheduled.                                 |
+
+```ts
+import { HermesWebSocketError } from "@shevernitskiy/twitch-hermes";
+
+hermes.on("error", (error: HermesWebSocketError) => {
+  console.error(error.message, { fatal: error.fatal, cause: error.cause });
+});
+```
+
+Reconnect policy: the first retry is immediate, later ones back off as `reconnectDelayMs * 2^(attempt - 1)` with
+±20% jitter and a `maxReconnectDelayMs` ceiling. A successful `welcome` resets the counter.
 
 ---
 
@@ -548,80 +359,45 @@ try {
 ```bash
 bun test
 bun run typecheck
+bun run format
 ```
 
-All tests run on a replaced `fetch` — no requests are sent to the Evotor Cloud.
-
----
-
-## 📦 Release
-
-The release workflow (`.github/workflows/release.yml`) is triggered manually with a version
-(`v0.1.0`, `0.1.0` — the `v` prefix is optional). It type checks, runs the tests, bumps the version
-in `package.json` and `jsr.json`, commits it, publishes to JSR, builds and publishes the npm
-package, and creates a GitHub release.
-
-```bash
-bun run version 0.1.0        # bump package.json + jsr.json
-bun run build:npm 0.1.0      # build the npm package into ./npm
-```
-
-A local release (npm + GitHub release) can be done with `scripts/release.ps1`.
-
----
-
-## 🤝 Contribution
-
-Pull requests, issues and feedback are very welcome. The library is developed and tested with
-[Bun](https://bun.sh) and targets Node, Bun and Deno.
-
-```bash
-bun install
-bun test
-bun run typecheck
-```
+Tests run on a fake `WebSocket`; no connection to Twitch is made. They cover the handshake, dispatch, once-listeners,
+soft and hard reconnects, both watchdogs, backoff, giving up, and compile-time topic/payload checks.
 
 ---
 
 ## ⚠️ Known limitations
 
-- **V2 document bodies are not discriminated by type.** `Document.body` is `Record<string, JSONValue>`; the shape of
-  `positions`, `payments`, `counterparties` and other fields depends on `type` and is described in the
-  [document schemes](https://developer.evotor.ru/docs/rest_api_scheme_documents.html). Narrow it in your code.
-- **V2 event payloads are not discriminated by type either.** `Event.payload` is `Record<string, JSONValue>`, and
-  `Event.action` is a union of the actions listed in the docs.
-- **V1 `Product` is one flat type.** The docs describe a separate schema per `type`; the library keeps all fields
-  optional so that a partial product can be sent, and leaves the required-field validation to the API.
-- **`MeasureName` accepts custom units** (`string & {}`), because Evotor allows product-accounting systems to use
-  their own units such as `пара` or `карат`.
-- **There is no typed webhook receiver.** The library only provides payload types (`WebhookEventMap`), and documents
-  arriving to a V2 webhook (`PUT /` with `id`, `close_date`, `body`) are not described yet — only the V1 format is.
-- **No automatic retries.** A `429` is reported as an error; the limiter only makes the _next_ call wait.
-- **V1 and V2 keep separate limiter state.** If you use both versions with the same token, the shared quota is not
-  tracked as a whole.
-
-### Where the Evotor docs contradict themselves
-
-- **Mass operation limit:** the overview says 1000 items, the endpoint pages say 5000.
-- **Push lifetime field:** the guide uses `active_until`, the reference example uses `active_untill`. The library
-  sends `active_until`.
-- **`product.type` in V1:** listed as required for `product`, but described as sent only when `group = false`.
-- **`quantityInPackage`** is camelCase in an otherwise snake_case V2 schema.
-- **`is_excisable`** mentions `BEER_MARKED` and `JUICE_MARKED`, which are absent from the `ProductType` list.
-- **The document webhook** shows a V2 body in the example and a V1 field table in the description.
+- **Only topics in `ChannelTopics` / `UserTopics` are subscribable.** The full prefix catalog lives in `src/types.ts`,
+  but a topic without a payload type has to be added to the map manually. `channel-drop-events` and
+  `predictions-user-v1` are already there with an `unknown` payload.
+- **A topic may emit more event types than modelled.** The tables list every known inner `type`; only the payloads
+  described in `src/types.ts` are typed. An unmodelled event still reaches the handler, but TypeScript types it as one
+  of the modelled variants.
+- **Composite user keys are not supported by `onUserEvent()`.** `private-callout` and `viewer-milestones` can also be
+  scoped to a channel as `<userId>.<channelId>`; the client subscribes the user-wide form.
+- **`leaderboard-events-v1` takes a subtopic, not a channel id.** Pass `clips-<channelId>`, `sub-gifts-sent-<channelId>-<unit>`
+  or `bits-usage-by-channel-v1-<channelId>-<unit>` as the key.
+- **Extension JWT topics are not supported.** The socket authenticates a user only.
+- **Some payload fields are deliberately `unknown`.** Twitch sends opaque GraphQL fragments (`sharedProgress`,
+  `treasureTrainDetails`, multipliers and similar) whose shape is not stable.
+- **No subscribe rate limiting.** Many topics at once are sent one by one; batching is a TODO in the client.
+- **Deprecated typo aliases** `OnSiteNotifictaionEvent` and `CreateNotifictaionEvent` are kept for compatibility. Use
+  `OnSiteNotificationEvent` and `CreateNotificationEvent`.
 
 ---
 
 ## 🔗 Links
 
-- [Evotor Cloud API V2 documentation](https://developer.evotor.ru/docs/rest_overview.html)
-- [Evotor Cloud API V1 documentation](https://api.evotor.ru/docs/)
-- [GitHub repository](https://github.com/shevernitskiy/evotor)
-- [npm package](https://www.npmjs.com/package/@shevernitskiy/evotor)
-- [JSR package](https://jsr.io/@shevernitskiy/evotor)
+- [GitHub repository](https://github.com/shevernitskiy/twitch-hermes)
+- [npm package](https://www.npmjs.com/package/@shevernitskiy/twitch-hermes)
+- [JSR package](https://jsr.io/@shevernitskiy/twitch-hermes)
+- [Type definitions](./src/types.ts)
+- [Client source](./src/hermes.ts)
 
 ---
 
 ## 📄 License
 
-MIT — see the [LICENSE](LICENSE) file.
+MIT — see the [LICENSE](./LICENSE) file.

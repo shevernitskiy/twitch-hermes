@@ -134,11 +134,11 @@ describe("misuse", () => {
     expect(() => client.start()).toThrow();
   });
 
-  test("onUser() without auth throws HermesWebSocketError", () => {
+  test("onUserEvent() without auth throws HermesWebSocketError", () => {
     const { client } = setup();
     let err: unknown;
     try {
-      client.onUser("community-points-user-v1", noop);
+      client.onUserEvent("community-points-user-v1", noop);
     } catch (e) {
       err = e;
     }
@@ -155,8 +155,8 @@ describe("session start", () => {
       clientId: "my-client",
       headers: { "X-Test": "1" },
     });
-    client.onChannel("polls", "100", noop);
-    client.onUser("community-points-user-v1", noop);
+    client.onChannelEvent("polls", "100", noop);
+    client.onUserEvent("community-points-user-v1", noop);
     client.start();
 
     const s = sockets[0]!;
@@ -180,7 +180,7 @@ describe("session start", () => {
 
   test("no authenticate message without auth", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     expect(sockets[0]!.sent.map((m) => m.type)).toEqual(["subscribe"]);
@@ -188,8 +188,8 @@ describe("session start", () => {
 
   test("duplicate subscribe is ignored", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     expect(sockets[0]!.subscribes()).toHaveLength(1);
@@ -199,7 +199,7 @@ describe("session start", () => {
     const { client, sockets } = setup();
     const sessions: string[] = [];
     client.on("new-session", (id) => sessions.push(id));
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!, "S1");
     expect(sessions).toEqual(["S1"]);
@@ -212,7 +212,7 @@ describe("dispatch", () => {
   test("channel topic: parsed payload + channelId", () => {
     const { client, sockets } = setup();
     const got: [number, string][] = [];
-    client.onChannel("video-playback-by-id", "100", (e, channelId) =>
+    client.onChannelEvent("video-playback-by-id", "100", (e, channelId) =>
       // @ts-expect-error
       got.push([e.viewers, channelId]),
     );
@@ -232,7 +232,9 @@ describe("dispatch", () => {
   test("user topic: parsed payload + userId", () => {
     const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
     const got: [string, string][] = [];
-    client.onUser("community-points-user-v1", (e) => got.push([e.type, "42"]));
+    client.onUserEvent("community-points-user-v1", (e) =>
+      got.push([e.type, "42"]),
+    );
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -249,7 +251,7 @@ describe("dispatch", () => {
     const { client, sockets } = setup();
     let raw = 0;
     client.on("notification", () => raw++);
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -260,8 +262,8 @@ describe("dispatch", () => {
   test("two listeners share one wire subscription and both get the event", () => {
     const { client, sockets } = setup();
     const got: string[] = [];
-    client.onChannel("polls", "100", () => got.push("a"));
-    client.onChannel("polls", "100", () => got.push("b"));
+    client.onChannelEvent("polls", "100", () => got.push("a"));
+    client.onChannelEvent("polls", "100", () => got.push("b"));
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -274,8 +276,8 @@ describe("dispatch", () => {
   test("same topic on different channels are independent subscriptions", () => {
     const { client, sockets } = setup();
     const got: string[] = [];
-    client.onChannel("polls", "1", (_e, id) => got.push(id));
-    client.onChannel("polls", "2", (_e, id) => got.push(id));
+    client.onChannelEvent("polls", "1", (_e, id) => got.push(id));
+    client.onChannelEvent("polls", "2", (_e, id) => got.push(id));
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -288,7 +290,7 @@ describe("dispatch", () => {
   test("unknown subscription id is ignored", () => {
     const { client, sockets } = setup();
     let calls = 0;
-    client.onChannel("polls", "100", () => calls++);
+    client.onChannelEvent("polls", "100", () => calls++);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.recv(pubsub("nope", { type: "POLL_CREATE" }));
@@ -301,7 +303,7 @@ describe("dispatch", () => {
     client.on("subscribe-response", (_m, topic, target) =>
       got.push([topic, target]),
     );
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -322,7 +324,7 @@ describe("dispatch", () => {
     const errors: HermesWebSocketError[] = [];
     let polls = 0;
     client.on("error", (e) => errors.push(e));
-    client.onChannel("polls", "100", () => polls++);
+    client.onChannelEvent("polls", "100", () => polls++);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -341,11 +343,11 @@ describe("dispatch", () => {
     let bad = 0;
     let good = 0;
     client.on("error", (e) => errors.push(e));
-    client.onChannel("polls", "100", () => {
+    client.onChannelEvent("polls", "100", () => {
       bad++;
       throw new Error("boom");
     });
-    client.onChannel("polls", "100", () => good++);
+    client.onChannelEvent("polls", "100", () => good++);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -359,10 +361,10 @@ describe("dispatch", () => {
     expect((errors[0]?.cause as Error).message).toBe("boom");
   });
 
-  test("onUser without auth does not leave a half-created subscription behind", () => {
+  test("onUserEvent without auth does not leave a half-created subscription behind", () => {
     const { client } = setup();
     try {
-      client.onUser("community-points-user-v1", noop);
+      client.onUserEvent("community-points-user-v1", noop);
     } catch {
       /* expected */
     }
@@ -373,11 +375,11 @@ describe("dispatch", () => {
 // ───────────────────────────── once / dispose ─────────────────────────────
 
 describe("once and unsubscribe", () => {
-  test("onceChannel fires once and drops the wire subscription", () => {
+  test("onceChannelEvent fires once and drops the wire subscription", () => {
     const { client, sockets } = setup();
     let calls = 0;
-    client.onChannel("shoutout", "100", noop); // keeps the connection non-empty
-    client.onceChannel("polls", "100", () => calls++);
+    client.onChannelEvent("shoutout", "100", noop); // keeps the connection non-empty
+    client.onceChannelEvent("polls", "100", () => calls++);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -389,11 +391,11 @@ describe("once and unsubscribe", () => {
     expect(s.sent.at(-1)?.unsubscribe?.id).toBe(id);
   });
 
-  test("onceUser fires once", () => {
+  test("onceUserEvent fires once", () => {
     const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
     let calls = 0;
-    client.onChannel("polls", "100", noop);
-    client.onceUser("community-points-user-v1", () => calls++);
+    client.onChannelEvent("polls", "100", noop);
+    client.onceUserEvent("community-points-user-v1", () => calls++);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -407,8 +409,8 @@ describe("once and unsubscribe", () => {
     const { client, sockets } = setup();
     let once = 0;
     let always = 0;
-    client.onceChannel("polls", "100", () => once++);
-    const off = client.onChannel("polls", "100", () => always++);
+    client.onceChannelEvent("polls", "100", () => once++);
+    const off = client.onChannelEvent("polls", "100", () => always++);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -426,9 +428,9 @@ describe("once and unsubscribe", () => {
   test("disposer removes only its own listener; wire unsubscribe after the last one", () => {
     const { client, sockets } = setup();
     const got: string[] = [];
-    const offA = client.onChannel("polls", "100", () => got.push("a"));
-    const offB = client.onChannel("polls", "100", () => got.push("b"));
-    client.onChannel("shoutout", "100", noop);
+    const offA = client.onChannelEvent("polls", "100", () => got.push("a"));
+    const offB = client.onChannelEvent("polls", "100", () => got.push("b"));
+    client.onChannelEvent("shoutout", "100", noop);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -448,8 +450,8 @@ describe("once and unsubscribe", () => {
   test("disposer is idempotent and a stale disposer cannot kill a re-created subscription", () => {
     const { client, sockets } = setup();
     let calls = 0;
-    client.onChannel("shoutout", "100", noop);
-    const off = client.onChannel("polls", "100", noop);
+    client.onChannelEvent("shoutout", "100", noop);
+    const off = client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -458,7 +460,7 @@ describe("once and unsubscribe", () => {
     off(); // second call: no second unsubscribe
     expect(s.sent.filter((m) => m.type === "unsubscribe")).toHaveLength(1);
 
-    client.onChannel("polls", "100", () => calls++); // same wire topic, new subscription
+    client.onChannelEvent("polls", "100", () => calls++); // same wire topic, new subscription
     off(); // stale
     const sub = s
       .subscribes()
@@ -472,11 +474,11 @@ describe("once and unsubscribe", () => {
   test("a listener may dispose itself during dispatch without skipping the others", () => {
     const { client, sockets } = setup();
     const got: string[] = [];
-    const off = client.onChannel("polls", "100", () => {
+    const off = client.onChannelEvent("polls", "100", () => {
       got.push("a");
       off();
     });
-    client.onChannel("polls", "100", () => got.push("b"));
+    client.onChannelEvent("polls", "100", () => got.push("b"));
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -493,21 +495,21 @@ describe("once and unsubscribe", () => {
 describe("listeners added while running", () => {
   test("a listener added after start() is subscribed immediately", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
     handshake(s);
-    client.onChannel("shoutout", "100", noop);
+    client.onChannelEvent("shoutout", "100", noop);
     expect(s.subscribes().at(-1)?.pubsub.topic).toBe("shoutout.100");
   });
 
   test("a listener added before welcome is subscribed on welcome, not earlier", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
     s.open();
-    client.onChannel("shoutout", "100", noop);
+    client.onChannelEvent("shoutout", "100", noop);
     expect(s.sent).toHaveLength(0);
     s.recv(welcome("S1"));
     expect(s.subscribes().map((x) => x.pubsub.topic)).toEqual([
@@ -523,7 +525,7 @@ describe("soft reconnect", () => {
   test("opens a second socket, keeps the old one until welcome, then closes it", () => {
     const { client, sockets } = setup();
     let calls = 0;
-    client.onChannel("polls", "100", () => calls++);
+    client.onChannelEvent("polls", "100", () => calls++);
     client.start();
     const s1 = sockets[0]!;
     handshake(s1);
@@ -552,7 +554,7 @@ describe("soft reconnect", () => {
     const { client, sockets } = setup();
     let sessions = 0;
     client.on("new-session", () => sessions++);
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.recv({
@@ -569,7 +571,7 @@ describe("soft reconnect", () => {
 
   test("a subscription added mid-reconnect is sent on the new socket only", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.recv({
@@ -579,7 +581,7 @@ describe("soft reconnect", () => {
       reconnect: { url: "wss://new" },
     });
 
-    client.onChannel("shoutout", "100", noop);
+    client.onChannelEvent("shoutout", "100", noop);
     expect(sockets[0]!.subscribes()).toHaveLength(1);
 
     handshake(sockets[1]!);
@@ -590,7 +592,7 @@ describe("soft reconnect", () => {
 
   test("the old socket closing by itself does not trigger a hard reconnect", async () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.recv({
@@ -609,7 +611,7 @@ describe("soft reconnect", () => {
 
   test("a repeated reconnect request while soft-reconnecting is ignored", () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     const r = {
@@ -625,7 +627,7 @@ describe("soft reconnect", () => {
 
   test("new socket dying falls back to a hard reconnect and cleans up both", async () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.recv({
@@ -652,8 +654,8 @@ describe("hard reconnect", () => {
     const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
     const sessions: string[] = [];
     client.on("new-session", (id) => sessions.push(id));
-    client.onChannel("polls", "100", noop);
-    client.onUser("community-points-user-v1", noop);
+    client.onChannelEvent("polls", "100", noop);
+    client.onUserEvent("community-points-user-v1", noop);
     client.start();
     handshake(sockets[0]!, "S1");
     const oldId = sockets[0]!.subIdFor("polls.100");
@@ -675,7 +677,7 @@ describe("hard reconnect", () => {
   test("notifications for the previous session's ids are ignored", async () => {
     const { client, sockets } = setup();
     let calls = 0;
-    client.onChannel("polls", "100", () => calls++);
+    client.onChannelEvent("polls", "100", () => calls++);
     client.start();
     handshake(sockets[0]!, "S1");
     const oldId = sockets[0]!.subIdFor("polls.100");
@@ -696,7 +698,7 @@ describe("hard reconnect", () => {
       reconnectDelayMs: 40,
       maxReconnectDelayMs: 40,
     });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
 
@@ -716,7 +718,7 @@ describe("hard reconnect", () => {
       reconnectDelayMs: 200,
       maxReconnectDelayMs: 200,
     });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
 
@@ -732,7 +734,7 @@ describe("hard reconnect", () => {
     const { client, sockets } = setup();
     const codes: number[] = [];
     client.on("close", (ev) => codes.push(ev.code));
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.serverClose(1011);
@@ -741,7 +743,7 @@ describe("hard reconnect", () => {
 
   test("4003 (connection unused) stops the client without reconnecting", async () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.serverClose(4003);
@@ -756,7 +758,7 @@ describe("hard reconnect", () => {
 describe("watchdogs", () => {
   test("silence longer than the threshold triggers a reconnect and closes the dead socket", async () => {
     const { client, sockets } = setup({ keepaliveTimeoutMs: 120 });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     await wait(350);
@@ -766,7 +768,7 @@ describe("watchdogs", () => {
 
   test("any traffic keeps the connection alive", async () => {
     const { client, sockets } = setup({ keepaliveTimeoutMs: 150 });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     for (let i = 0; i < 6; i++) {
@@ -778,7 +780,7 @@ describe("watchdogs", () => {
 
   test("default threshold is derived from keepaliveSec of the welcome", async () => {
     const { client, sockets } = setup(); // 2 x 0.1s = 200ms
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!, "S1", 0.1);
     await wait(500);
@@ -787,7 +789,7 @@ describe("watchdogs", () => {
 
   test("no welcome within connectTimeoutMs triggers a reconnect", async () => {
     const { client, sockets } = setup({ connectTimeoutMs: 60 });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     sockets[0]!.open(); // upgrade done, but the server never says welcome
     await wait(200);
@@ -807,7 +809,7 @@ describe("giving up", () => {
     });
     const errors: HermesWebSocketError[] = [];
     client.on("error", (e) => errors.push(e));
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     await wait(400);
 
@@ -824,7 +826,7 @@ describe("giving up", () => {
       connectTimeoutMs: 30,
       log: (...args) => logs.push(args),
     });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     await wait(250);
     expect(
@@ -834,7 +836,7 @@ describe("giving up", () => {
 
   test("close() stops everything and a later start() works again", async () => {
     const { client, sockets } = setup();
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
 
@@ -852,7 +854,7 @@ describe("giving up", () => {
 
   test("close() while backing off cancels the pending retry", async () => {
     const { client, sockets } = setup({ reconnectDelayMs: 50 });
-    client.onChannel("polls", "100", noop);
+    client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
     sockets[0]!.serverClose(1006);
@@ -870,15 +872,15 @@ describe("giving up", () => {
 export function typeChecks(): void {
   const c = new HermesWebSocket();
   // @ts-expect-error user topic is not a channel topic
-  c.onChannel("community-points-user-v1", "1", noop);
+  c.onChannelEvent("community-points-user-v1", "1", noop);
   // @ts-expect-error channel topic is not a user topic
-  c.onUser("polls", noop);
+  c.onUserEvent("polls", noop);
   // @ts-expect-error unknown topic
-  c.onChannel("nope", "1", noop);
+  c.onChannelEvent("nope", "1", noop);
   // @ts-expect-error user listeners get no target id, event is typed per topic
-  c.onUser("community-points-user-v1", (e: { nope: 1 }) => void e);
+  c.onUserEvent("community-points-user-v1", (e: { nope: 1 }) => void e);
 
-  const off: () => void = c.onChannel(
+  const off: () => void = c.onChannelEvent(
     "video-playback-by-id",
     "1",
     (e, channelId) => {
@@ -890,6 +892,12 @@ export function typeChecks(): void {
     },
   );
   off();
-  c.onceUser("community-points-user-v1", (e) => void e.type);
+  c.onceUserEvent("community-points-user-v1", (e) => void e.type);
+  c.onChannelEvent("raid", "1", (e) => {
+    const type: "raid_update_v2" | "raid_go_v2" = e.type;
+    void type;
+  });
+  c.onChannelEvent("leaderboard-events-v1", "clips-1", (e) => void e);
+  c.onUserEvent("viewer-milestones", (e) => void e.data);
   c.on("error", (e) => void e.fatal);
 }

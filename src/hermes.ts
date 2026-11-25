@@ -1,9 +1,15 @@
 import { EventEmitter } from "node:events";
 
 import type {
+  AdsEvent,
   BroadcastSettingsUpdateEvent,
+  CelebrationEvent,
+  ChannelSubGiftsEvent,
+  CommunityPointsChannelEvent,
   CommunityPointsUserEvent,
+  ContentClassificationLabelsEvent,
   CreatorGoalsEvent,
+  HermesMessage,
   HermesMessageAuthenticateResponse,
   HermesMessageKeepalive,
   HermesMessageNotification,
@@ -11,51 +17,92 @@ import type {
   HermesMessageReconnect,
   HermesMessageSubscribeResponse,
   HermesMessageWelcome,
-  OnSiteNotifictaionEvent,
+  HypeTrainEvent,
+  LeaderboardEvent,
+  OnSiteNotificationEvent,
   PinChatUpdatesEvent,
   PollEvent,
   PredictionEvent,
+  PrivateCalloutEvent,
+  RaidGoV2Event,
+  RaidUpdateV2Event,
   ShoutoutEvent,
+  StreamChatRoomEvent,
   UserDropEvent,
   VideoPlaybackByIdEvent,
+  ViewerMilestonesEvent,
 } from "./types.ts";
 
-// ───────────────────────────── topics ─────────────────────────────
-// Type-level only: the runtime lookup objects of the old version are gone.
-// Topic validity is enforced by the compiler at subscribe time, and the
-// subscription table is the single runtime source of truth.
+export type * from "./types.ts";
 
-/** Topics addressed by channel (broadcaster) id: `<topic>.<channelId>`. */
+// ───────────────────────────── topics ─────────────────────────────
+// Type-level only: topic validity is enforced by the compiler at subscribe time,
+// and the subscription table is the single runtime source of truth.
+
+/**
+ * 🔓 Channel topics. Subscribed as `<topic>.<channelId>`, no token required.
+ *
+ * `leaderboard-events-v1` is the exception: its key is a subtopic
+ * (`clips-<channelId>`, `sub-gifts-sent-<channelId>-<unit>`), not a bare channel id.
+ */
 export interface ChannelTopics {
-  "channel-drop-events": unknown;
-  "video-playback-by-id": VideoPlaybackByIdEvent;
-  "predictions-channel-v1": PredictionEvent;
-  polls: PollEvent;
-  shoutout: ShoutoutEvent;
+  /** Mid-roll ad breaks. Also emits `ads-schedule-update`. */
+  ads: AdsEvent;
+  /** Stream title, game and live status. */
   "broadcast-settings-update": BroadcastSettingsUpdateEvent;
-  "pinned-chat-updates-v1": PinChatUpdatesEvent;
+  /** Alert-set celebrations. Also emits `celebrations_message`. */
+  "celebration-events-v1": CelebrationEvent;
+  /** Drops campaign activity of a channel. Payload is not modelled. */
+  "channel-drop-events": unknown;
+  /** Community gift subscriptions. Also emits `gift-event`. */
+  "channel-sub-gifts-v1": ChannelSubGiftsEvent;
+  /** Channel Points as seen by viewers. */
+  "community-points-channel-v1": CommunityPointsChannelEvent;
+  /** Content classification labels. */
+  "content-classification-labels-v1": ContentClassificationLabelsEvent;
+  /** Creator goals. Also emits `goal_created`, `goal_achieved`, `goal_finished`. */
   "creator-goals-events-v1": CreatorGoalsEvent;
+  /** Hype Train lifecycle. */
+  "hype-train-events-v2": HypeTrainEvent;
+  /** Clips, gift subs and bits leaderboards. Key is a subtopic, e.g. `clips-<channelId>`. */
+  "leaderboard-events-v1": LeaderboardEvent;
+  /** Pinned chat messages. Also emits `update-message`. */
+  "pinned-chat-updates-v1": PinChatUpdatesEvent;
+  /** Polls of the channel. */
+  polls: PollEvent;
+  /** Channel predictions. */
+  "predictions-channel-v1": PredictionEvent;
+  /** Raids into and out of the channel. */
+  raid: RaidUpdateV2Event | RaidGoV2Event;
+  /** Shoutouts created in the channel. */
+  shoutout: ShoutoutEvent;
+  /** Chat room modes and rich embeds. */
+  "stream-chat-room-v1": StreamChatRoomEvent;
+  /** Viewer count and commercial breaks. Also emits `stream-up`, `stream-down`. */
+  "video-playback-by-id": VideoPlaybackByIdEvent;
 }
 
-/** Topics addressed by the authenticated user's id: `<topic>.<userId>`. Need `auth`. */
+/**
+ * 🔑 User topics. Require `auth`; subscribed as `<topic>.<userId>`.
+ *
+ * The userId is taken from `options.auth.userId`, so one client serves one user.
+ */
 export interface UserTopics {
-  "user-drop-events": UserDropEvent;
-  "viewer-milestones": unknown;
-  "onsite-notifications": OnSiteNotifictaionEvent;
-  "predictions-user-v1": unknown;
+  /** Channel Points, goals and rewards of the user. */
   "community-points-user-v1": CommunityPointsUserEvent;
+  /** Onsite notification tray and unread counters. */
+  "onsite-notifications": OnSiteNotificationEvent;
+  /** Predictions the user took part in. Payload is not modelled yet. */
+  "predictions-user-v1": unknown;
+  /** Private callouts for the user (`<userId>` or `<userId>.<channelId>`). */
+  "private-callout": PrivateCalloutEvent;
+  /** Drops campaigns of the user. */
+  "user-drop-events": UserDropEvent;
+  /** Watch streaks and viewer milestones. */
+  "viewer-milestones": ViewerMilestonesEvent;
 }
 
 // ───────────────────────────── messages ─────────────────────────────
-
-// Consider moving this union to types.ts.
-type InboundMessage =
-  | HermesMessageNotification
-  | HermesMessageKeepalive
-  | HermesMessageWelcome
-  | HermesMessageSubscribeResponse
-  | HermesMessageAuthenticateResponse
-  | HermesMessageReconnect;
 
 type OutboundType = "authenticate" | "subscribe" | "unsubscribe";
 
@@ -63,7 +110,7 @@ type OutboundType = "authenticate" | "subscribe" | "unsubscribe";
 
 /**
  * Lifecycle / diagnostics events (node:events map format: event name -> tuple of listener arguments).
- * Topic events are NOT here: use onChannel/onceChannel/onUser/onceUser.
+ * Topic events are NOT here: use onChannelEvent/onceChannelEvent/onUserEvent/onceUserEvent.
  */
 export type HermesEvents = {
   "new-session": [sessionId: string];
@@ -82,7 +129,7 @@ export type HermesEvents = {
   error: [error: HermesWebSocketError];
 };
 
-/** Listener for a channel topic. `channelId` lets one function serve many channels. */
+/** Listener for a channel topic. The key (usually a channel id) lets one function serve many targets. */
 export type ChannelHandler<K extends keyof ChannelTopics> = (
   event: ChannelTopics[K],
   channelId: string,
@@ -98,6 +145,7 @@ export type Unsubscribe = () => void;
 
 // ───────────────────────────── options / errors ─────────────────────────────
 
+/** Construction options for {@link HermesWebSocket}. */
 export interface HermesOptions {
   /** Required for user topics. `userId` is the owner of `token`. */
   auth?: { token: string; userId: string };
@@ -126,6 +174,12 @@ export interface HermesOptions {
   log?: (...args: unknown[]) => void;
 }
 
+/**
+ * Error raised by the client.
+ *
+ * `fatal: true` means the client gave up and closed; `false` means it is reported for diagnostics
+ * and the client keeps running or reconnects.
+ */
 export class HermesWebSocketError extends Error {
   /** `true` = the client gave up and is closed. */
   readonly fatal: boolean;
@@ -156,7 +210,7 @@ interface Subscription {
   id: string;
   /** Event name, e.g. "polls". */
   topic: string;
-  /** Channel id or user id. */
+  /** Channel id, user id or subtopic — the key appended to `topic`. */
   target: string;
   /** `${topic}.${target}`, precomputed once. */
   wire: string;
@@ -208,6 +262,16 @@ function genId(len = 21): string {
 
 // ───────────────────────────── client ─────────────────────────────
 
+/**
+ * Typed Twitch Hermes (PubSub over WebSocket) client.
+ *
+ * Register listeners first with {@link onChannelEvent} / {@link onUserEvent}, then call {@link start}.
+ * A subscription lives exactly while at least one listener is attached to it and is restored
+ * automatically in every new session.
+ *
+ * Lifecycle events are emitted through the standard EventEmitter API; topic events go to the
+ * listener passed to `onChannelEvent` / `onUserEvent`.
+ */
 export class HermesWebSocket extends EventEmitter<HermesEvents> {
   private readonly wsUrl: string;
   private readonly headers: Record<string, string>;
@@ -260,10 +324,15 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
   }
 
   /**
-   * Listen to a channel topic. The first listener for (topic, channelId) creates the wire subscription,
+   * Listen to a 🔓 channel topic. `channelId` is appended to the topic as its key.
+   *
+   * The first listener for a (topic, channelId) pair creates the wire subscription,
    * the last one removed drops it. Safe to call before or after `start()`.
+   *
+   * `leaderboard-events-v1` takes a subtopic instead of a channel id,
+   * e.g. `onChannelEvent("leaderboard-events-v1", "clips-123", handler)`.
    */
-  onChannel<K extends keyof ChannelTopics>(
+  onChannelEvent<K extends keyof ChannelTopics>(
     topic: K,
     channelId: string,
     handler: ChannelHandler<K>,
@@ -276,8 +345,8 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     );
   }
 
-  /** Like `onChannel`, but the listener is removed after its first event. */
-  onceChannel<K extends keyof ChannelTopics>(
+  /** Like `onChannelEvent`, but the listener is removed after its first event. */
+  onceChannelEvent<K extends keyof ChannelTopics>(
     topic: K,
     channelId: string,
     handler: ChannelHandler<K>,
@@ -290,8 +359,11 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     );
   }
 
-  /** Listen to a user topic of `options.auth.userId`. Throws without `auth`. */
-  onUser<K extends keyof UserTopics>(
+  /**
+   * Listen to a 🔑 user topic of `options.auth.userId`.
+   * Throws {@link HermesWebSocketError} when `auth` is missing.
+   */
+  onUserEvent<K extends keyof UserTopics>(
     topic: K,
     handler: UserHandler<K>,
   ): Unsubscribe {
@@ -303,8 +375,8 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     );
   }
 
-  /** Like `onUser`, but the listener is removed after its first event. */
-  onceUser<K extends keyof UserTopics>(
+  /** Like `onUserEvent`, but the listener is removed after its first event. */
+  onceUserEvent<K extends keyof UserTopics>(
     topic: K,
     handler: UserHandler<K>,
   ): Unsubscribe {
@@ -321,7 +393,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     if (this.status !== "idle" && this.status !== "closed") return this;
     if (this.subsByWire.size === 0) {
       throw new HermesWebSocketError(
-        "Nothing to listen to. Call onChannel()/onUser() before start().",
+        "Nothing to listen to. Call onChannelEvent()/onUserEvent() before start().",
       );
     }
     this.retries = 0;
@@ -554,7 +626,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     this.lastActivity = Date.now(); // any traffic proves the link is alive
 
     try {
-      const msg: InboundMessage = JSON.parse(data);
+      const msg = JSON.parse(data) as HermesMessage;
       switch (
         msg.type // hot types first
       ) {
