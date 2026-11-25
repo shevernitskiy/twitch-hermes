@@ -51,6 +51,7 @@ const pkg = {
   author: "shevernitskiy",
   license: "MIT",
   type: "module",
+  private: false,
   engines: {
     node: ">= 22",
   },
