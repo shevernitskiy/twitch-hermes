@@ -1,6 +1,6 @@
 {
   "name": "@shevernitskiy/twitch-hermes",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "exports": "./src/hermes.ts",
   "exclude": ["npm", "node_modules", "scripts", "tests", "run.ts", ".github", "tsconfig.json", "package.json"]
 }

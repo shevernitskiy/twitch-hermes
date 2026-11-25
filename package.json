@@ -1,6 +1,6 @@
 {
   "name": "@shevernitskiy/twitch-hermes",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": false,
   "description": "Twitch Hermes websocket client",
   "license": "MIT",
