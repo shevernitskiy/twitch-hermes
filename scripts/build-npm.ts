@@ -57,7 +57,7 @@ const pkg = {
   },
   repository: {
     type: "git",
-    url: "https://github.com/shevernitskiy/twitch-hermes",
+    url: "git+https://github.com/shevernitskiy/twitch-hermes.git",
   },
   files: ["*.js", "*.d.ts"],
   main: "./hermes.js",
