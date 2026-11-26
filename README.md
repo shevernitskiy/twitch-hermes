@@ -9,8 +9,9 @@
 
 A thin, fully-typed TypeScript client for **Twitch Hermes** — the WebSocket transport behind Twitch PubSub.
 
-Zero runtime dependencies. The JSR package ships TypeScript source, so Bun, Deno and bundlers consume it as-is; the npm
-package ships compiled ESM with type declarations and runs on Node 22+.
+Zero runtime dependencies and no Node-specific APIs — works in browsers, Web Workers, Bun, Deno and Node 22+. The JSR
+package ships TypeScript source, so Bun, Deno and bundlers consume it as-is; the npm package ships compiled ESM with
+type declarations.
 
 - Typed topic map — unknown topics are rejected by the compiler and each handler gets the payload type of its topic;
 - Typed PubSub payloads for every event modelled in [`src/types.ts`](./src/types.ts);
@@ -36,6 +37,7 @@ package ships compiled ESM with type declarations and runs on Node 22+.
 - [x] Soft reconnect (`reconnect` message)
 - [x] Hard reconnect with exponential backoff
 - [x] Custom socket factory (proxy, fake sockets in tests)
+- [x] Browser & edge-runtime compatible (zero `node:*` dependencies)
 - [x] Tests on a fake WebSocket
 - [ ] Subscribe rate limiting / batching
 - [ ] Twitch Extension JWT topics
@@ -75,7 +77,7 @@ import { HermesWebSocket } from "@shevernitskiy/twitch-hermes";
 
 > [!NOTE]
 > The JSR package is published as TypeScript source, without a build step: Bun, Deno and TypeScript bundlers import
-> it directly. The npm package is compiled to ESM with `.d.ts` declarations and works in plain Node 22+.
+> it directly. The npm package is compiled to ESM with `.d.ts` declarations and works in plain Node 22+ and browsers.
 
 ---
 
@@ -98,8 +100,8 @@ hermes.onChannelEvent("polls", "600513126", (event) => {
   }
 });
 
-hermes.on("error", (error) => console.error(error));
-hermes.on("new-session", (sessionId) => console.log("session:", sessionId));
+hermes.onError((error) => console.error(error));
+hermes.onEvent("new-session", (sessionId) => console.log("session:", sessionId));
 
 hermes.start();
 ```
@@ -169,18 +171,18 @@ const hermes = new HermesWebSocket({
 
 ### Constructor options
 
-| Option                | Type                                | Default                         | Description                                                                            |
-| --------------------- | ----------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------- |
-| `auth`                | `{ token: string; userId: string }` | —                               | OAuth token and its owner. Required for 🔑 user topics.                                |
-| `clientId`            | `string`                            | Twitch Web client id            | Sent as the `clientId` query parameter.                                                |
-| `headers`             | `Record<string, string>`            | `Origin` + browser `User-Agent` | Merged over the default handshake headers.                                             |
-| `createWebSocket`     | `(url, headers) => WebSocket`       | global `WebSocket`              | Custom socket factory for proxies, Undici dispatchers, Bun options or a fake in tests. |
-| `maxRetries`          | `number`                            | `5`                             | Consecutive failed reconnects before giving up. `Infinity` is allowed.                 |
-| `reconnectDelayMs`    | `number`                            | `5000`                          | Base of the exponential backoff. The first retry is immediate.                         |
-| `maxReconnectDelayMs` | `number`                            | `30000`                         | Backoff ceiling.                                                                       |
-| `connectTimeoutMs`    | `number`                            | `10000`                         | Max time from opening the socket to `welcome`.                                         |
-| `keepaliveTimeoutMs`  | `number`                            | `2 × keepaliveSec`              | Silence threshold; longer silence means a dead connection.                             |
-| `log`                 | `(...args: unknown[]) => void`      | —                               | Diagnostic logger. Errors are logged here when nobody listens to the `error` event.    |
+| Option                | Type                                | Default                         | Description                                                                                 |
+| --------------------- | ----------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| `auth`                | `{ token: string; userId: string }` | —                               | OAuth token and its owner. Required for 🔑 user topics.                                     |
+| `clientId`            | `string`                            | Twitch Web client id            | Sent as the `clientId` query parameter.                                                     |
+| `headers`             | `Record<string, string>`            | `Origin` + browser `User-Agent` | Merged over the default handshake headers (ignored by standard browser / Deno `WebSocket`). |
+| `createWebSocket`     | `(url, headers) => WebSocket`       | global `WebSocket`              | Custom socket factory for proxies, Undici dispatchers, Bun options or a fake in tests.      |
+| `maxRetries`          | `number`                            | `5`                             | Consecutive failed reconnects before giving up. `Infinity` is allowed.                      |
+| `reconnectDelayMs`    | `number`                            | `5000`                          | Base of the exponential backoff. The first retry is immediate.                              |
+| `maxReconnectDelayMs` | `number`                            | `30000`                         | Backoff ceiling.                                                                            |
+| `connectTimeoutMs`    | `number`                            | `10000`                         | Max time from opening the socket to `welcome`.                                              |
+| `keepaliveTimeoutMs`  | `number`                            | `2 × keepaliveSec`              | Silence threshold; longer silence means a dead connection.                                  |
+| `log`                 | `(...args: unknown[]) => void`      | —                               | Diagnostic logger. Errors are logged here when nobody listens via `onError`/`onceError`.    |
 
 ### Methods
 
@@ -190,16 +192,20 @@ const hermes = new HermesWebSocket({
 | `onceChannelEvent(topic, channelId, handler)` | `Unsubscribe` | Same, but removed after the first event.                                                                |
 | `onUserEvent(topic, handler)`                 | `Unsubscribe` | Listen to a 🔑 topic of `auth.userId`. Throws `HermesWebSocketError` without `auth`.                    |
 | `onceUserEvent(topic, handler)`               | `Unsubscribe` | Same, but removed after the first event.                                                                |
+| `onEvent(event, handler)`                     | `Unsubscribe` | Listen to a lifecycle or diagnostics event.                                                             |
+| `onceEvent(event, handler)`                   | `Unsubscribe` | Same, but removed after the first event.                                                                |
+| `onError(handler)`                            | `Unsubscribe` | Listen to client errors. Without a listener, errors are logged via `log`.                               |
+| `onceError(handler)`                          | `Unsubscribe` | Same, but removed after the first error.                                                                |
 | `start()`                                     | `this`        | Opens the connection. Needs at least one listener, otherwise throws `HermesWebSocketError`.             |
 | `stop()`                                      | `void`        | Closes the socket, cancels reconnects, keeps listeners for a later `start()`.                           |
 | `connected`                                   | `boolean`     | `true` while the socket is running or soft-reconnecting.                                                |
 
-`Unsubscribe` is idempotent: the second call does nothing, and a stale disposer cannot remove a newer subscription
-for the same topic.
+Every subscription method returns an idempotent `Unsubscribe` function: repeated calls do nothing, and for topic
+subscriptions a stale disposer cannot remove a newer subscription for the same topic.
 
 ### Client events
 
-Lifecycle and diagnostics, in `node:events` map format:
+Lifecycle and diagnostics events, subscribed via `onEvent(event, handler)` / `onceEvent(event, handler)`:
 
 | Event                   | Arguments                           | When                                                                    |
 | ----------------------- | ----------------------------------- | ----------------------------------------------------------------------- |
@@ -207,16 +213,16 @@ Lifecycle and diagnostics, in `node:events` map format:
 | `welcome`               | `HermesMessageWelcome`              | Any `welcome`, including a soft reconnect.                              |
 | `reconnect`             | `HermesMessageReconnect`            | The server asked the client to move to another socket.                  |
 | `keepalive`             | `HermesMessageKeepalive`            | The server sent a keepalive.                                            |
-| `close`                 | `CloseEvent`                        | A socket closed, before the reconnect decision.                         |
+| `close`                 | `CloseEvent`                        | A socket closed, before the reconnect decision (not emitted on `stop`). |
 | `notification`          | `HermesMessageNotification`         | Any raw notification, typed or not.                                     |
 | `authenticate-response` | `HermesMessageAuthenticateResponse` | The server answered `authenticate`.                                     |
 | `subscribe-response`    | `(message, topic, targetId)`        | The server answered `subscribe`; topic and target are resolved for you. |
 | `unsubscribe-response`  | `HermesMessageUnsubscribeResponse`  | The server answered `unsubscribe`.                                      |
-| `error`                 | `HermesWebSocketError`              | Socket error, malformed JSON, throwing listener, fatal give-up.         |
 
 > [!NOTE]
-> `error` is emitted only if a listener exists. Without one the error is passed to `log`, so a network blip never
-> crashes the process.
+> Client errors are handled separately via `onError(handler)` / `onceError(handler)`. If no error listener is
+> registered, errors are passed to `log`, so a network blip never crashes the process. Exceptions thrown by any
+> listener (including `onEvent` and `onError`) are isolated and never starve other listeners or break dispatch.
 
 ---
 
@@ -296,16 +302,21 @@ The root entry re-exports every public type, so a single import is enough:
 
 ```ts
 import type {
+  ErrorHandler,
+  EventHandler,
+  HermesEvents,
   HermesMessage,
   KnownPubSubEvent,
   KnownPubSubEventType,
   PollEvent,
   RaidGoV2Event,
   RaidUpdateV2Event,
+  Unsubscribe,
 } from "@shevernitskiy/twitch-hermes";
 ```
 
 - `ChannelTopics` / `UserTopics` — maps of subscribable topics to payloads;
+- `HermesEvents` / `EventHandler` / `ErrorHandler` / `Unsubscribe` — lifecycle event map, listener signatures and disposer type;
 - `KnownPubSubEvent` — union of every modelled PubSub payload;
 - `KnownPubSubEventType` — union of every known inner `type` discriminator;
 - `KnownRewindUpdateType` — rewind statuses of `rewind-updates-v1`;
@@ -330,19 +341,19 @@ function onPoll(event: PollEvent) {
 
 All client errors are `HermesWebSocketError` with a `fatal` flag and an optional `cause`:
 
-| Situation                                | `fatal` | Behaviour                                                                               |
-| ---------------------------------------- | ------- | --------------------------------------------------------------------------------------- |
-| Socket `error`                           | `false` | Reported; the close handler decides whether to reconnect.                               |
-| Malformed JSON / a listener threw        | `false` | Reported; the client keeps working and other listeners still run.                       |
-| `maxRetries` exhausted                   | `true`  | The client is closed and stops reconnecting.                                            |
-| Server closes with `4003` / `4004`       | —       | "Connection unused" — reconnecting would not help; the client stops (no `error` event). |
-| No `welcome` within `connectTimeoutMs`   | `false` | The socket is dropped and a retry is scheduled.                                         |
-| Silence longer than `keepaliveTimeoutMs` | `false` | The socket is considered dead and a retry is scheduled.                                 |
+| Situation                                | `fatal` | Behaviour                                                                                         |
+| ---------------------------------------- | ------- | ------------------------------------------------------------------------------------------------- |
+| Socket `error`                           | `false` | Reported; the close handler decides whether to reconnect.                                         |
+| Malformed JSON / a listener threw        | `false` | Reported; the client keeps working and other listeners still run.                                 |
+| `maxRetries` exhausted                   | `true`  | The client is closed and stops reconnecting.                                                      |
+| Server closes with `4003` / `4004`       | —       | "Connection unused" — reconnecting would not help; the client stops (not reported as an `error`). |
+| No `welcome` within `connectTimeoutMs`   | `false` | The socket is dropped and a retry is scheduled.                                                   |
+| Silence longer than `keepaliveTimeoutMs` | `false` | The socket is considered dead and a retry is scheduled.                                           |
 
 ```ts
 import { HermesWebSocketError } from "@shevernitskiy/twitch-hermes";
 
-hermes.on("error", (error: HermesWebSocketError) => {
+hermes.onError((error: HermesWebSocketError) => {
   console.error(error.message, { fatal: error.fatal, cause: error.cause });
 });
 ```
@@ -360,8 +371,9 @@ bun run typecheck
 bun run format
 ```
 
-Tests run on a fake `WebSocket`; no connection to Twitch is made. They cover the handshake, dispatch, once-listeners,
-soft and hard reconnects, both watchdogs, backoff, giving up, and compile-time topic/payload checks.
+Tests run on a fake `WebSocket`; no connection to Twitch is made. They cover the handshake, dispatch,
+`onEvent`/`onceEvent` and `onError`/`onceError`, topic `once`-listeners, listener error isolation, browser `WebSocket`
+fallback, soft and hard reconnects, both watchdogs, backoff, giving up, and compile-time topic/payload checks.
 
 ---
 
@@ -378,6 +390,9 @@ soft and hard reconnects, both watchdogs, backoff, giving up, and compile-time t
 - **`leaderboard-events-v1` takes a subtopic, not a channel id.** Pass `clips-<channelId>`, `sub-gifts-sent-<channelId>-<unit>`
   or `bits-usage-by-channel-v1-<channelId>-<unit>` as the key.
 - **Extension JWT topics are not supported.** The socket authenticates a user only.
+- **Browser `WebSocket` cannot override handshake headers.** In browsers and Deno, `options.headers` (including the
+  default `Origin` and `User-Agent`) are ignored and `defaultCreateWebSocket` automatically falls back to
+  `new WebSocket(url)`.
 - **Some payload fields are deliberately `unknown`.** Twitch sends opaque GraphQL fragments (`sharedProgress`,
   `treasureTrainDetails`, multipliers and similar) whose shape is not stable.
 - **No subscribe rate limiting.** Many topics at once are sent one by one; batching is a TODO in the client.

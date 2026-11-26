@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
-  HermesWebSocket,
-  HermesWebSocketError,
   type HermesMessageSubscribe,
   type HermesOptions,
+  HermesWebSocket,
+  HermesWebSocketError,
 } from "../src/hermes.ts";
 
 // ───────────────────────────── test harness ─────────────────────────────
@@ -67,10 +67,7 @@ class FakeSocket {
 
   subIdFor(wire: string): string {
     const sub = this.subscribes().find((s) => s.pubsub.topic === wire);
-    if (!sub)
-      throw new Error(
-        `no subscribe for ${wire}; sent: ${JSON.stringify(this.sent)}`,
-      );
+    if (!sub) throw new Error(`no subscribe for ${wire}; sent: ${JSON.stringify(this.sent)}`);
     return sub.id;
   }
 }
@@ -98,8 +95,7 @@ afterEach(() => {
 });
 
 const noop = () => {};
-const wait = (ms: number) =>
-  new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 const welcome = (sessionId: string, keepaliveSec = 10) => ({
   type: "welcome",
@@ -166,16 +162,9 @@ describe("session start", () => {
     expect(s.headers["X-Test"]).toBe("1");
 
     handshake(s);
-    expect(s.sent.map((m) => m.type)).toEqual([
-      "authenticate",
-      "subscribe",
-      "subscribe",
-    ]);
+    expect(s.sent.map((m) => m.type)).toEqual(["authenticate", "subscribe", "subscribe"]);
     expect(s.sent[0]?.authenticate?.token).toBe("TOKEN");
-    expect(s.subscribes().map((x) => x.pubsub.topic)).toEqual([
-      "polls.100",
-      "community-points-user-v1.42",
-    ]);
+    expect(s.subscribes().map((x) => x.pubsub.topic)).toEqual(["polls.100", "community-points-user-v1.42"]);
     expect(client.connected).toBe(true);
   });
 
@@ -199,7 +188,7 @@ describe("session start", () => {
   test("emits new-session once per session", () => {
     const { client, sockets } = setup();
     const sessions: string[] = [];
-    client.on("new-session", (id) => sessions.push(id));
+    client.onEvent("new-session", (id) => sessions.push(id));
     client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!, "S1");
@@ -233,9 +222,7 @@ describe("dispatch", () => {
   test("user topic: parsed payload + userId", () => {
     const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
     const got: [string, string][] = [];
-    client.onUserEvent("community-points-user-v1", (e) =>
-      got.push([e.type, "42"]),
-    );
+    client.onUserEvent("community-points-user-v1", (e) => got.push([e.type, "42"]));
     client.start();
     const s = sockets[0]!;
     handshake(s);
@@ -251,7 +238,7 @@ describe("dispatch", () => {
   test("raw notification event always fires", () => {
     const { client, sockets } = setup();
     let raw = 0;
-    client.on("notification", () => raw++);
+    client.onEvent("notification", () => raw++);
     client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
@@ -301,9 +288,7 @@ describe("dispatch", () => {
   test("subscribe-response carries topic and target", () => {
     const { client, sockets } = setup();
     const got: [string, string][] = [];
-    client.on("subscribe-response", (_m, topic, target) =>
-      got.push([topic, target]),
-    );
+    client.onEvent("subscribe-response", (_m, topic, target) => got.push([topic, target]));
     client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
@@ -324,9 +309,7 @@ describe("dispatch", () => {
   test("unsubscribe-response is emitted", () => {
     const { client, sockets } = setup();
     const results: string[] = [];
-    client.on("unsubscribe-response", (message) =>
-      results.push(message.unsubscribeResponse.result),
-    );
+    client.onEvent("unsubscribe-response", (message) => results.push(message.unsubscribeResponse.result));
     client.onChannelEvent("polls", "100", noop);
     client.start();
     const s = sockets[0]!;
@@ -348,7 +331,7 @@ describe("dispatch", () => {
     const { client, sockets } = setup();
     const errors: HermesWebSocketError[] = [];
     let polls = 0;
-    client.on("error", (e) => errors.push(e));
+    client.onError((e) => errors.push(e));
     client.onChannelEvent("polls", "100", () => polls++);
     client.start();
     const s = sockets[0]!;
@@ -367,7 +350,7 @@ describe("dispatch", () => {
     const errors: HermesWebSocketError[] = [];
     let bad = 0;
     let good = 0;
-    client.on("error", (e) => errors.push(e));
+    client.onError((e) => errors.push(e));
     client.onChannelEvent("polls", "100", () => {
       bad++;
       throw new Error("boom");
@@ -394,6 +377,257 @@ describe("dispatch", () => {
       /* expected */
     }
     expect(() => client.start()).toThrow();
+  });
+});
+
+// ───────────────────────────── onEvent / onceEvent ─────────────────────────────
+
+describe("onEvent / onceEvent", () => {
+  test("delivers lifecycle events and unsubscribes idempotently", () => {
+    const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
+    const welcomes: string[] = [];
+    const authResults: string[] = [];
+    let keepalives = 0;
+
+    client.onEvent("welcome", (m) => welcomes.push(m.welcome.sessionId));
+    client.onEvent("authenticate-response", (m) => authResults.push(m.authenticateResponse.result));
+    const offKeepalive = client.onEvent("keepalive", () => keepalives++);
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+
+    const s = sockets[0]!;
+    handshake(s, "S1");
+    s.recv({
+      type: "authenticateResponse",
+      id: "a",
+      timestamp: "",
+      authenticateResponse: { result: "ok" },
+    });
+    s.recv(keepalive());
+    offKeepalive();
+    offKeepalive(); // idempotent
+    s.recv(keepalive());
+
+    expect(welcomes).toEqual(["S1"]);
+    expect(authResults).toEqual(["ok"]);
+    expect(keepalives).toBe(1);
+  });
+
+  test("onceEvent fires once (single-arg and 3-arg events)", () => {
+    const { client, sockets } = setup();
+    let keepalives = 0;
+    const subResponses: [string, string, string][] = [];
+
+    client.onceEvent("keepalive", () => keepalives++);
+    client.onceEvent("subscribe-response", (msg, topic, target) =>
+      subResponses.push([msg.subscribeResponse.result, topic, target]),
+    );
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+
+    const s = sockets[0]!;
+    handshake(s);
+    const subId = s.subIdFor("polls.100");
+
+    s.recv(keepalive());
+    s.recv(keepalive());
+    const resp = {
+      type: "subscribeResponse",
+      id: "r",
+      timestamp: "",
+      subscribeResponse: {
+        subscription: { id: subId },
+        result: "ok",
+        topic: "polls.100",
+      },
+    };
+    s.recv(resp);
+    s.recv(resp);
+
+    expect(keepalives).toBe(1);
+    expect(subResponses).toEqual([["ok", "polls", "100"]]);
+  });
+
+  test("slot transitions 1 <-> 2 <-> 3 <-> 0 and stale disposer safety", () => {
+    const { client, sockets } = setup();
+    const got: string[] = [];
+
+    const offA = client.onEvent("keepalive", () => got.push("a"));
+    const offB = client.onEvent("keepalive", () => got.push("b"));
+    const offC = client.onEvent("keepalive", () => got.push("c"));
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    const s = sockets[0]!;
+    handshake(s);
+
+    s.recv(keepalive());
+    expect(got).toEqual(["a", "b", "c"]);
+
+    got.length = 0;
+    offB(); // 3 -> 2
+    s.recv(keepalive());
+    expect(got).toEqual(["a", "c"]);
+
+    got.length = 0;
+    offA(); // 2 -> 1 (single-listener slot)
+    offA(); // stale disposer must not drop "c"
+    s.recv(keepalive());
+    expect(got).toEqual(["c"]);
+
+    got.length = 0;
+    offC(); // 1 -> 0
+    s.recv(keepalive());
+    expect(got).toEqual([]);
+  });
+
+  test("onceEvent + onEvent: re-entrant dispatch fires once only once", () => {
+    const { client, sockets } = setup();
+    const got: string[] = [];
+    const sRef: { s?: FakeSocket } = {};
+
+    client.onceEvent("keepalive", () => {
+      got.push("once");
+      sRef.s?.recv(keepalive());
+    });
+    const offRegular = client.onEvent("keepalive", () => {
+      got.push("regular");
+    });
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    sRef.s = sockets[0]!;
+    handshake(sRef.s);
+
+    sRef.s.recv(keepalive());
+    expect(got).toEqual(["once", "regular", "regular"]);
+
+    got.length = 0;
+    offRegular();
+    sRef.s.recv(keepalive());
+    expect(got).toEqual([]);
+  });
+
+  test("a throwing onEvent listener is reported and does not break other listeners or dispatch", () => {
+    const { client, sockets } = setup();
+    const errors: HermesWebSocketError[] = [];
+    const log: string[] = [];
+
+    client.onError((e) => errors.push(e));
+    client.onEvent("welcome", () => {
+      throw new Error("welcome-boom");
+    });
+    client.onEvent("new-session", (id) => log.push(`session:${id}`));
+    client.onEvent("notification", () => {
+      throw new Error("notif-boom");
+    });
+    client.onEvent("notification", () => log.push("notif2"));
+    client.onEvent("subscribe-response", () => {
+      throw new Error("subresp-boom");
+    });
+    client.onEvent("subscribe-response", (_m, topic) => log.push(`subresp2:${topic}`));
+    client.onEvent("close", () => {
+      throw new Error("close-boom");
+    });
+    client.onEvent("close", (ev) => log.push(`close2:${ev.code}`));
+    client.onChannelEvent("polls", "100", () => log.push("channel-poll"));
+
+    client.start();
+    const s = sockets[0]!;
+    handshake(s, "S1");
+    const subId = s.subIdFor("polls.100");
+
+    s.recv(pubsub(subId, { type: "POLL_CREATE" }));
+    s.recv({
+      type: "subscribeResponse",
+      id: "r",
+      timestamp: "",
+      subscribeResponse: {
+        subscription: { id: subId },
+        result: "ok",
+        topic: "polls.100",
+      },
+    });
+    s.serverClose(1000);
+
+    expect(log).toEqual(["session:S1", "notif2", "channel-poll", "subresp2:polls", "close2:1000"]);
+    expect(errors.map((e) => (e.cause as Error).message)).toEqual([
+      "welcome-boom",
+      "notif-boom",
+      "subresp-boom",
+      "close-boom",
+    ]);
+  });
+});
+
+// ───────────────────────────── onError / onceError ─────────────────────────────
+
+describe("onError / onceError", () => {
+  test("onceError fires once and falls back to logging afterwards", () => {
+    const logs: unknown[][] = [];
+    const { client, sockets } = setup({
+      log: (...args) => logs.push(args),
+    });
+    const errors: HermesWebSocketError[] = [];
+
+    client.onceError((e) => errors.push(e));
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    const s = sockets[0]!;
+    handshake(s);
+
+    s.recv("{ bad 1");
+    s.recv("{ bad 2");
+
+    expect(errors).toHaveLength(1);
+    expect(logs.some((l) => String(l[1]).includes("Failed to handle incoming message"))).toBe(true);
+  });
+
+  test("multiple error listeners, disposer and slot transitions", () => {
+    const { client, sockets } = setup();
+    const got: string[] = [];
+
+    const offA = client.onError(() => got.push("a"));
+    client.onceError(() => got.push("once"));
+    const offB = client.onError(() => got.push("b"));
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    const s = sockets[0]!;
+    handshake(s);
+
+    s.recv("{ bad 1");
+    expect(got).toEqual(["a", "once", "b"]);
+
+    got.length = 0;
+    offA();
+    offA(); // idempotent, must not drop "b"
+    s.recv("{ bad 2");
+    expect(got).toEqual(["b"]);
+
+    got.length = 0;
+    offB();
+    s.recv("{ bad 3");
+    expect(got).toEqual([]);
+  });
+
+  test("a throwing error listener is logged and does not recurse or starve other error listeners", () => {
+    const logs: unknown[][] = [];
+    const { client, sockets } = setup({
+      log: (...args) => logs.push(args),
+    });
+    const got: string[] = [];
+
+    client.onError(() => {
+      throw new Error("err-listener-boom");
+    });
+    client.onError((e) => got.push(e.message));
+    client.onChannelEvent("polls", "100", noop);
+    client.start();
+    const s = sockets[0]!;
+    handshake(s);
+
+    s.recv("{ bad");
+
+    expect(got).toEqual(["Failed to handle incoming message"]);
+    expect(logs.some((l) => String(l[1]).includes("Error listener threw:"))).toBe(true);
   });
 });
 
@@ -537,10 +771,7 @@ describe("listeners added while running", () => {
     client.onChannelEvent("shoutout", "100", noop);
     expect(s.sent).toHaveLength(0);
     s.recv(welcome("S1"));
-    expect(s.subscribes().map((x) => x.pubsub.topic)).toEqual([
-      "polls.100",
-      "shoutout.100",
-    ]);
+    expect(s.subscribes().map((x) => x.pubsub.topic)).toEqual(["polls.100", "shoutout.100"]);
   });
 });
 
@@ -578,7 +809,7 @@ describe("soft reconnect", () => {
   test("session continues: no resubscribe, no new-session", () => {
     const { client, sockets } = setup();
     let sessions = 0;
-    client.on("new-session", () => sessions++);
+    client.onEvent("new-session", () => sessions++);
     client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
@@ -610,9 +841,7 @@ describe("soft reconnect", () => {
     expect(sockets[0]!.subscribes()).toHaveLength(1);
 
     handshake(sockets[1]!);
-    expect(sockets[1]!.subscribes().map((x) => x.pubsub.topic)).toEqual([
-      "shoutout.100",
-    ]);
+    expect(sockets[1]!.subscribes().map((x) => x.pubsub.topic)).toEqual(["shoutout.100"]);
   });
 
   test("the old socket closing by itself does not trigger a hard reconnect", async () => {
@@ -666,9 +895,7 @@ describe("soft reconnect", () => {
     expect(sockets[0]!.closeCalls).toBe(1);
     await wait(15); // first retry is immediate
     expect(sockets).toHaveLength(3);
-    expect(sockets[2]!.url).toBe(
-      "wss://hermes.twitch.tv/v1?clientId=kimne78kx3ncx6brgo4mv6wki5h1ko",
-    );
+    expect(sockets[2]!.url).toBe("wss://hermes.twitch.tv/v1?clientId=kimne78kx3ncx6brgo4mv6wki5h1ko");
   });
 });
 
@@ -678,7 +905,7 @@ describe("hard reconnect", () => {
   test("first retry is immediate, new session resubscribes everything with fresh ids", async () => {
     const { client, sockets } = setup({ auth: { token: "T", userId: "42" } });
     const sessions: string[] = [];
-    client.on("new-session", (id) => sessions.push(id));
+    client.onEvent("new-session", (id) => sessions.push(id));
     client.onChannelEvent("polls", "100", noop);
     client.onUserEvent("community-points-user-v1", noop);
     client.start();
@@ -690,11 +917,7 @@ describe("hard reconnect", () => {
     expect(sockets).toHaveLength(2);
 
     handshake(sockets[1]!, "S2");
-    expect(sockets[1]!.sent.map((m) => m.type)).toEqual([
-      "authenticate",
-      "subscribe",
-      "subscribe",
-    ]);
+    expect(sockets[1]!.sent.map((m) => m.type)).toEqual(["authenticate", "subscribe", "subscribe"]);
     expect(sockets[1]!.subIdFor("polls.100") === oldId).toBe(false);
     expect(sessions).toEqual(["S1", "S2"]);
   });
@@ -712,9 +935,7 @@ describe("hard reconnect", () => {
 
     sockets[1]!.recv(pubsub(oldId, { type: "POLL_CREATE" }));
     expect(calls).toBe(0);
-    sockets[1]!.recv(
-      pubsub(sockets[1]!.subIdFor("polls.100"), { type: "POLL_CREATE" }),
-    );
+    sockets[1]!.recv(pubsub(sockets[1]!.subIdFor("polls.100"), { type: "POLL_CREATE" }));
     expect(calls).toBe(1);
   });
 
@@ -758,7 +979,7 @@ describe("hard reconnect", () => {
   test("close event is emitted with the close code", () => {
     const { client, sockets } = setup();
     const codes: number[] = [];
-    client.on("close", (ev) => codes.push(ev.code));
+    client.onEvent("close", (ev) => codes.push(ev.code));
     client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
@@ -833,7 +1054,7 @@ describe("giving up", () => {
       connectTimeoutMs: 30,
     });
     const errors: HermesWebSocketError[] = [];
-    client.on("error", (e) => errors.push(e));
+    client.onError((e) => errors.push(e));
     client.onChannelEvent("polls", "100", noop);
     client.start();
     await wait(400);
@@ -854,18 +1075,19 @@ describe("giving up", () => {
     client.onChannelEvent("polls", "100", noop);
     client.start();
     await wait(250);
-    expect(
-      logs.some((l) => String(l[1]).includes("Max reconnect retries")),
-    ).toBe(true);
+    expect(logs.some((l) => String(l[1]).includes("Max reconnect retries"))).toBe(true);
   });
 
-  test("close() stops everything and a later start() works again", async () => {
+  test("stop() stops everything without emitting close, and a later start() works again", async () => {
     const { client, sockets } = setup();
+    let closes = 0;
+    client.onEvent("close", () => closes++);
     client.onChannelEvent("polls", "100", noop);
     client.start();
     handshake(sockets[0]!);
 
     client.stop();
+    expect(closes).toBe(0);
     expect(sockets[0]!.closeCalls).toBe(1);
     expect(client.connected).toBe(false);
     await wait(60);
@@ -888,6 +1110,106 @@ describe("giving up", () => {
     client.stop();
     await wait(150);
     expect(sockets).toHaveLength(2);
+  });
+});
+
+// ───────────────────────────── defaultCreateWebSocket ─────────────────────────────
+
+describe("defaultCreateWebSocket", () => {
+  test("passes { headers } when the runtime WebSocket accepts them", () => {
+    const OriginalWebSocket = globalThis.WebSocket;
+    const calls: { url: string; rest: unknown[] }[] = [];
+
+    class NodeLikeWebSocket {
+      readyState = 0;
+      onmessage: unknown = null;
+      onerror: unknown = null;
+      onclose: unknown = null;
+      onopen: unknown = null;
+      constructor(url: string, ...rest: unknown[]) {
+        calls.push({ url, rest });
+      }
+      close(): void {
+        this.readyState = 3;
+      }
+      send(): void {}
+    }
+
+    globalThis.WebSocket = NodeLikeWebSocket as unknown as typeof WebSocket;
+    try {
+      const client = new HermesWebSocket({ headers: { "X-Custom": "1" } });
+      clients.push(client);
+      client.onChannelEvent("polls", "100", noop);
+      client.start();
+
+      expect(calls).toHaveLength(1);
+      const init = calls[0]?.rest[0] as { headers: Record<string, string> };
+      expect(init.headers["Origin"]).toBe("https://www.twitch.tv");
+      expect(init.headers["X-Custom"]).toBe("1");
+      expect(typeof init.headers["User-Agent"]).toBe("string");
+    } finally {
+      globalThis.WebSocket = OriginalWebSocket;
+    }
+  });
+
+  test("falls back to new WebSocket(url) when the 2nd arg throws (browser/Deno behavior)", () => {
+    const OriginalWebSocket = globalThis.WebSocket;
+    const calls: { url: string; argCount: number }[] = [];
+
+    class BrowserLikeWebSocket {
+      readyState = 0;
+      onmessage: unknown = null;
+      onerror: unknown = null;
+      onclose: unknown = null;
+      onopen: unknown = null;
+      constructor(url: string, ...rest: unknown[]) {
+        if (rest.length > 0) {
+          throw new SyntaxError("Failed to construct 'WebSocket': The subprotocol '[object Object]' is invalid.");
+        }
+        calls.push({ url, argCount: 1 });
+      }
+      close(): void {
+        this.readyState = 3;
+      }
+      send(): void {}
+    }
+
+    globalThis.WebSocket = BrowserLikeWebSocket as unknown as typeof WebSocket;
+    try {
+      const client = new HermesWebSocket();
+      clients.push(client);
+      client.onChannelEvent("polls", "100", noop);
+      client.start();
+
+      expect(calls).toEqual([
+        {
+          url: "wss://hermes.twitch.tv/v1?clientId=kimne78kx3ncx6brgo4mv6wki5h1ko",
+          argCount: 1,
+        },
+      ]);
+    } finally {
+      globalThis.WebSocket = OriginalWebSocket;
+    }
+  });
+
+  test("rethrows when constructing WebSocket fails even without headers", () => {
+    const OriginalWebSocket = globalThis.WebSocket;
+
+    class BrokenWebSocket {
+      constructor() {
+        throw new SyntaxError("invalid url");
+      }
+    }
+
+    globalThis.WebSocket = BrokenWebSocket as unknown as typeof WebSocket;
+    try {
+      const client = new HermesWebSocket();
+      clients.push(client);
+      client.onChannelEvent("polls", "100", noop);
+      expect(() => client.start()).toThrow("invalid url");
+    } finally {
+      globalThis.WebSocket = OriginalWebSocket;
+    }
   });
 });
 
@@ -919,17 +1241,13 @@ export function typeChecks(): void {
   // @ts-expect-error user listeners get no target id, event is typed per topic
   c.onUserEvent("community-points-user-v1", (e: { nope: 1 }) => void e);
 
-  const off: () => void = c.onChannelEvent(
-    "video-playback-by-id",
-    "1",
-    (e, channelId) => {
-      // @ts-expect-error
-      const viewers: number = e.viewers;
-      const id: string = channelId;
-      void viewers;
-      void id;
-    },
-  );
+  const off: () => void = c.onChannelEvent("video-playback-by-id", "1", (e, channelId) => {
+    // @ts-expect-error
+    const viewers: number = e.viewers;
+    const id: string = channelId;
+    void viewers;
+    void id;
+  });
   off();
   c.onceUserEvent("community-points-user-v1", (e) => void e.type);
   c.onChannelEvent("raid", "1", (e) => {
@@ -950,5 +1268,25 @@ export function typeChecks(): void {
     }
   });
   c.onUserEvent("viewer-milestones", (e) => void e.data);
-  c.on("error", (e) => void e.fatal);
+
+  const offEvent: () => void = c.onEvent("keepalive", (m) => void m.type);
+  offEvent();
+  c.onceEvent("welcome", (m) => void m.welcome.sessionId);
+  c.onceEvent("subscribe-response", (m, topic, target) => {
+    void m.subscribeResponse.result;
+    const t: string = topic;
+    const id: string = target;
+    void t;
+    void id;
+  });
+  const offError: () => void = c.onError((e) => void e.fatal);
+  offError();
+  c.onceError((e) => void e.message);
+
+  // @ts-expect-error "error" is handled via onError/onceError, not onEvent
+  c.onEvent("error", noop);
+  // @ts-expect-error unknown lifecycle event
+  c.onEvent("nope", noop);
+  // @ts-expect-error wrong event argument type
+  c.onEvent("new-session", (id: number) => void id);
 }

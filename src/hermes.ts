@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import type {
   AdsEvent,
   BroadcastSettingsUpdateEvent,
@@ -49,7 +47,7 @@ export type * from "./types.ts";
  */
 export interface ChannelTopics {
   /** Mid-roll ad breaks. Also emits `ads-schedule-update`. */
-  ads: AdsEvent;
+  "ads": AdsEvent;
   /** Stream title, game and live status. */
   "broadcast-settings-update": BroadcastSettingsUpdateEvent;
   /** Alert-set celebrations. Also emits `celebrations_message`. */
@@ -72,13 +70,13 @@ export interface ChannelTopics {
   /** Pinned chat messages. */
   "pinned-chat-updates-v1": PinChatUpdatesEvent;
   /** Polls of the channel. */
-  polls: PollEvent;
+  "polls": PollEvent;
   /** Channel predictions. */
   "predictions-channel-v1": PredictionEvent;
   /** Raids into and out of the channel. */
-  raid: RaidUpdateV2Event | RaidGoV2Event;
+  "raid": RaidUpdateV2Event | RaidGoV2Event;
   /** Shoutouts created in the channel. */
-  shoutout: ShoutoutEvent;
+  "shoutout": ShoutoutEvent;
   /** Chat room modes and rich embeds. */
   "stream-chat-room-v1": StreamChatRoomEvent;
   /** Viewer count, stream state and commercial breaks. */
@@ -112,39 +110,35 @@ type OutboundType = "authenticate" | "subscribe" | "unsubscribe";
 // ───────────────────────────── events ─────────────────────────────
 
 /**
- * Lifecycle / diagnostics events (node:events map format: event name -> tuple of listener arguments).
- * Topic events are NOT here: use onChannelEvent/onceChannelEvent/onUserEvent/onceUserEvent.
+ * Lifecycle / diagnostics events (event name -> tuple of listener arguments).
+ * Topic events use `onChannelEvent`/`onceChannelEvent`/`onUserEvent`/`onceUserEvent`;
+ * errors use `onError`/`onceError`.
  */
 export type HermesEvents = {
   "new-session": [sessionId: string];
-  welcome: [message: HermesMessageWelcome];
-  reconnect: [message: HermesMessageReconnect];
-  keepalive: [message: HermesMessageKeepalive];
-  close: [event: CloseEvent];
-  notification: [message: HermesMessageNotification];
+  "welcome": [message: HermesMessageWelcome];
+  "reconnect": [message: HermesMessageReconnect];
+  "keepalive": [message: HermesMessageKeepalive];
+  "close": [event: CloseEvent];
+  "notification": [message: HermesMessageNotification];
   "authenticate-response": [message: HermesMessageAuthenticateResponse];
-  "subscribe-response": [
-    message: HermesMessageSubscribeResponse,
-    topic: string,
-    targetId: string,
-  ];
+  "subscribe-response": [message: HermesMessageSubscribeResponse, topic: string, targetId: string];
   "unsubscribe-response": [message: HermesMessageUnsubscribeResponse];
-  /** Emitted only if somebody listens (otherwise logged), so a network blip never crashes the process. */
-  error: [error: HermesWebSocketError];
 };
 
+/** Listener for a lifecycle / diagnostics event. */
+export type EventHandler<K extends keyof HermesEvents> = (...args: HermesEvents[K]) => void;
+
+/** Listener for client errors. */
+export type ErrorHandler = (error: HermesWebSocketError) => void;
+
 /** Listener for a channel topic. The key (usually a channel id) lets one function serve many targets. */
-export type ChannelHandler<K extends keyof ChannelTopics> = (
-  event: ChannelTopics[K],
-  channelId: string,
-) => void;
+export type ChannelHandler<K extends keyof ChannelTopics> = (event: ChannelTopics[K], channelId: string) => void;
 
 /** Listener for a user topic. */
-export type UserHandler<K extends keyof UserTopics> = (
-  event: UserTopics[K],
-) => void;
+export type UserHandler<K extends keyof UserTopics> = (event: UserTopics[K]) => void;
 
-/** Removes the listener; the wire subscription goes away with the last listener. Idempotent. */
+/** Removes the listener; for topic subscriptions, the wire subscription goes away with the last listener. Idempotent. */
 export type Unsubscribe = () => void;
 
 // ───────────────────────────── options / errors ─────────────────────────────
@@ -155,7 +149,7 @@ export interface HermesOptions {
   auth?: { token: string; userId: string };
   /** Defaults to the twitch web client id. */
   clientId?: string;
-  /** Merged over the defaults (Origin + User-Agent). Passed to `createWebSocket`. */
+  /** Merged over the defaults (Origin + User-Agent). Passed to `createWebSocket` (ignored by standard browser WebSocket). */
   headers?: Record<string, string>;
   /**
    * Custom socket factory, e.g. to go through a proxy or to inject a fake in tests.
@@ -196,18 +190,13 @@ export class HermesWebSocketError extends Error {
 
   static fromEvent(event: Event): HermesWebSocketError {
     const e = event as Partial<ErrorEvent>;
-    return new HermesWebSocketError(
-      e.message ? `WebSocket error: ${e.message}` : "WebSocket error",
-      false,
-      e.error,
-    );
+    return new HermesWebSocketError(e.message ? `WebSocket error: ${e.message}` : "WebSocket error", false, e.error);
   }
 }
 
 // ───────────────────────────── internals ─────────────────────────────
 
-type Status =
-  "idle" | "connecting" | "running" | "soft-reconnect" | "backoff" | "closed";
+type Status = "idle" | "connecting" | "running" | "soft-reconnect" | "backoff" | "closed";
 
 interface Subscription {
   /** Wire id. Regenerated for every new session. */
@@ -231,36 +220,72 @@ interface Entry {
   once: boolean;
 }
 
+interface ListenerEntry<F> {
+  fn: F;
+  once: boolean;
+}
+
+/** Single listener is stored bare (no array); >=2 listeners use a copy-on-write array. */
+type ListenerSlot<F> = ListenerEntry<F> | readonly ListenerEntry<F>[];
+
+type StoredEventFn = () => void;
+
+type OneArgEvents = {
+  [K in keyof HermesEvents as HermesEvents[K] extends [unknown] ? K : never]: HermesEvents[K][0];
+};
+
+function isEntryArray<F>(slot: ListenerSlot<F>): slot is readonly ListenerEntry<F>[] {
+  return Array.isArray(slot);
+}
+
+function addToSlot<F>(slot: ListenerSlot<F> | undefined, entry: ListenerEntry<F>): ListenerSlot<F> {
+  if (slot === undefined) return entry;
+  if (!isEntryArray(slot)) return [slot, entry];
+  return [...slot, entry];
+}
+
+function removeFromSlot<F>(slot: ListenerSlot<F> | undefined, entry: ListenerEntry<F>): ListenerSlot<F> | undefined {
+  if (slot === undefined) return undefined;
+  if (!isEntryArray(slot)) return slot === entry ? undefined : slot;
+  const i = slot.indexOf(entry);
+  if (i === -1) return slot;
+  if (slot.length <= 1) return undefined;
+  if (slot.length === 2) return slot[1 - i];
+  const next = slot.slice();
+  next.splice(i, 1);
+  return next;
+}
+
 const DEFAULT_HEADERS: Record<string, string> = {
-  Origin: "https://www.twitch.tv",
+  "Origin": "https://www.twitch.tv",
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
 };
 
-// Node/Deno/Bun accept `{ headers }` as the second argument; the DOM typings do not know about it.
-type WebSocketCtor = new (
-  url: string,
-  init: { headers: Record<string, string> },
-) => WebSocket;
+// Node (undici) and Bun accept `{ headers }` as the second argument; browsers/Deno treat it as `protocols`.
+type WebSocketCtor = new (url: string, init: { headers: Record<string, string> }) => WebSocket;
 
-function defaultCreateWebSocket(
-  url: string,
-  headers: Record<string, string>,
-): WebSocket {
-  return new (WebSocket as unknown as WebSocketCtor)(url, { headers });
+let wsSupportsHeaders = true;
+
+function defaultCreateWebSocket(url: string, headers: Record<string, string>): WebSocket {
+  // Node (undici) and Bun accept `{ headers }` as the 2nd argument;
+  // browsers and Deno treat it as `protocols` and throw synchronously.
+  try {
+    return new (WebSocket as unknown as WebSocketCtor)(url, { headers });
+  } catch {
+    return new WebSocket(url);
+  }
 }
 
 // Local copies: a custom socket need not carry the static constants of the global class.
 const CONNECTING = 0;
 const OPEN = 1;
 
-const ID_ALPHABET =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+const ID_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 function genId(len = 21): string {
   let id = "";
-  for (const b of crypto.getRandomValues(new Uint8Array(len)))
-    id += ID_ALPHABET.charAt(b & 63); // 256 % 64 === 0, no modulo bias
+  for (const b of crypto.getRandomValues(new Uint8Array(len))) id += ID_ALPHABET.charAt(b & 63); // 256 % 64 === 0, no modulo bias
   return id;
 }
 
@@ -273,10 +298,10 @@ function genId(len = 21): string {
  * A subscription lives exactly while at least one listener is attached to it and is restored
  * automatically in every new session.
  *
- * Lifecycle events are emitted through the standard EventEmitter API; topic events go to the
- * listener passed to `onChannelEvent` / `onUserEvent`.
+ * Lifecycle events are registered via {@link onEvent} / {@link onceEvent}; errors via {@link onError} / {@link onceError};
+ * topic events go to {@link onChannelEvent} / {@link onUserEvent}.
  */
-export class HermesWebSocket extends EventEmitter<HermesEvents> {
+export class HermesWebSocket {
   private readonly wsUrl: string;
   private readonly headers: Record<string, string>;
   private readonly auth?: { token: string; userId: string };
@@ -285,10 +310,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
   private readonly maxReconnectDelayMs: number;
   private readonly connectTimeoutMs: number;
   private readonly keepaliveTimeoutMs?: number;
-  private readonly createWebSocket: (
-    url: string,
-    headers: Record<string, string>,
-  ) => WebSocket;
+  private readonly createWebSocket: (url: string, headers: Record<string, string>) => WebSocket;
   private readonly log: (...args: unknown[]) => void;
 
   private status: Status = "idle";
@@ -306,8 +328,10 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
   private readonly subsByWire = new Map<string, Subscription>();
   private readonly subsById = new Map<string, Subscription>();
 
+  private readonly eventListeners = new Map<keyof HermesEvents, ListenerSlot<StoredEventFn>>();
+  private errorListeners?: ListenerSlot<ErrorHandler>;
+
   constructor(options: HermesOptions = {}) {
-    super();
     this.wsUrl = `wss://hermes.twitch.tv/v1?clientId=${options.clientId ?? "kimne78kx3ncx6brgo4mv6wki5h1ko"}`;
     this.headers = { ...DEFAULT_HEADERS, ...options.headers };
     this.auth = options.auth;
@@ -327,6 +351,29 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     return this.status === "running" || this.status === "soft-reconnect";
   }
 
+  /** Listen to a lifecycle or diagnostics event. */
+  onEvent<K extends keyof HermesEvents>(event: K, handler: EventHandler<K>): Unsubscribe {
+    return this.addEventEntry(event, handler as unknown as StoredEventFn, false);
+  }
+
+  /** Like `onEvent`, but the listener is removed after its first event. */
+  onceEvent<K extends keyof HermesEvents>(event: K, handler: EventHandler<K>): Unsubscribe {
+    return this.addEventEntry(event, handler as unknown as StoredEventFn, true);
+  }
+
+  /**
+   * Listen to client errors.
+   * When no error listener is registered, errors are logged instead of throwing.
+   */
+  onError(handler: ErrorHandler): Unsubscribe {
+    return this.addErrorEntry(handler, false);
+  }
+
+  /** Like `onError`, but the listener is removed after its first error. */
+  onceError(handler: ErrorHandler): Unsubscribe {
+    return this.addErrorEntry(handler, true);
+  }
+
   /**
    * Listen to a 🔓 channel topic. `channelId` is appended to the topic as its key.
    *
@@ -336,17 +383,8 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
    * `leaderboard-events-v1` takes a subtopic instead of a channel id,
    * e.g. `onChannelEvent("leaderboard-events-v1", "clips-123", handler)`.
    */
-  onChannelEvent<K extends keyof ChannelTopics>(
-    topic: K,
-    channelId: string,
-    handler: ChannelHandler<K>,
-  ): Unsubscribe {
-    return this.addHandler(
-      topic,
-      channelId,
-      handler as unknown as Handler,
-      false,
-    );
+  onChannelEvent<K extends keyof ChannelTopics>(topic: K, channelId: string, handler: ChannelHandler<K>): Unsubscribe {
+    return this.addHandler(topic, channelId, handler as unknown as Handler, false);
   }
 
   /** Like `onChannelEvent`, but the listener is removed after its first event. */
@@ -355,50 +393,27 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     channelId: string,
     handler: ChannelHandler<K>,
   ): Unsubscribe {
-    return this.addHandler(
-      topic,
-      channelId,
-      handler as unknown as Handler,
-      true,
-    );
+    return this.addHandler(topic, channelId, handler as unknown as Handler, true);
   }
 
   /**
    * Listen to a 🔑 user topic of `options.auth.userId`.
    * Throws {@link HermesWebSocketError} when `auth` is missing.
    */
-  onUserEvent<K extends keyof UserTopics>(
-    topic: K,
-    handler: UserHandler<K>,
-  ): Unsubscribe {
-    return this.addHandler(
-      topic,
-      this.requireAuth().userId,
-      handler as unknown as Handler,
-      false,
-    );
+  onUserEvent<K extends keyof UserTopics>(topic: K, handler: UserHandler<K>): Unsubscribe {
+    return this.addHandler(topic, this.requireAuth().userId, handler as unknown as Handler, false);
   }
 
   /** Like `onUserEvent`, but the listener is removed after its first event. */
-  onceUserEvent<K extends keyof UserTopics>(
-    topic: K,
-    handler: UserHandler<K>,
-  ): Unsubscribe {
-    return this.addHandler(
-      topic,
-      this.requireAuth().userId,
-      handler as unknown as Handler,
-      true,
-    );
+  onceUserEvent<K extends keyof UserTopics>(topic: K, handler: UserHandler<K>): Unsubscribe {
+    return this.addHandler(topic, this.requireAuth().userId, handler as unknown as Handler, true);
   }
 
   /** Opens the connection. Needs at least one listener (the server drops unused connections). */
   start(): this {
     if (this.status !== "idle" && this.status !== "closed") return this;
     if (this.subsByWire.size === 0) {
-      throw new HermesWebSocketError(
-        "Nothing to listen to. Call onChannelEvent()/onUserEvent() before start().",
-      );
+      throw new HermesWebSocketError("Nothing to listen to. Call onChannelEvent()/onUserEvent() before start().");
     }
     this.retries = 0;
     this.open(this.wsUrl, false);
@@ -413,22 +428,91 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     this.shutdown();
   }
 
+  // ───────── lifecycle & error listeners ─────────
+
+  private addEventEntry(event: keyof HermesEvents, fn: StoredEventFn, once: boolean): Unsubscribe {
+    const entry: ListenerEntry<StoredEventFn> = { fn, once };
+    this.eventListeners.set(event, addToSlot(this.eventListeners.get(event), entry));
+    return () => this.removeEventEntry(event, entry);
+  }
+
+  private removeEventEntry(event: keyof HermesEvents, entry: ListenerEntry<StoredEventFn>): void {
+    const cur = this.eventListeners.get(event);
+    if (cur === undefined) return;
+    const next = removeFromSlot(cur, entry);
+    if (next === cur) return;
+    if (next === undefined) this.eventListeners.delete(event);
+    else this.eventListeners.set(event, next);
+  }
+
+  private addErrorEntry(fn: ErrorHandler, once: boolean): Unsubscribe {
+    const entry: ListenerEntry<ErrorHandler> = { fn, once };
+    this.errorListeners = addToSlot(this.errorListeners, entry);
+    return () => this.removeErrorEntry(entry);
+  }
+
+  private removeErrorEntry(entry: ListenerEntry<ErrorHandler>): void {
+    this.errorListeners = removeFromSlot(this.errorListeners, entry);
+  }
+
+  private emitEvent<K extends keyof OneArgEvents>(event: K, arg: OneArgEvents[K]): void {
+    if (this.eventListeners.size === 0) return;
+    const slot = this.eventListeners.get(event);
+    if (slot === undefined) return;
+
+    if (!isEntryArray(slot)) {
+      if (slot.once) this.eventListeners.delete(event);
+      try {
+        (slot.fn as (arg: OneArgEvents[K]) => void)(arg);
+      } catch (e) {
+        this.fail(new HermesWebSocketError(`Listener for "${event}" threw`, false, e));
+      }
+      return;
+    }
+
+    for (const entry of slot) {
+      if (entry.once) this.removeEventEntry(event, entry);
+      try {
+        (entry.fn as (arg: OneArgEvents[K]) => void)(arg);
+      } catch (e) {
+        this.fail(new HermesWebSocketError(`Listener for "${event}" threw`, false, e));
+      }
+    }
+  }
+
+  private emitSubscribeResponse(msg: HermesMessageSubscribeResponse, topic: string, targetId: string): void {
+    if (this.eventListeners.size === 0) return;
+    const slot = this.eventListeners.get("subscribe-response");
+    if (slot === undefined) return;
+
+    if (!isEntryArray(slot)) {
+      if (slot.once) this.eventListeners.delete("subscribe-response");
+      try {
+        (slot.fn as EventHandler<"subscribe-response">)(msg, topic, targetId);
+      } catch (e) {
+        this.fail(new HermesWebSocketError('Listener for "subscribe-response" threw', false, e));
+      }
+      return;
+    }
+
+    for (const entry of slot) {
+      if (entry.once) this.removeEventEntry("subscribe-response", entry);
+      try {
+        (entry.fn as EventHandler<"subscribe-response">)(msg, topic, targetId);
+      } catch (e) {
+        this.fail(new HermesWebSocketError('Listener for "subscribe-response" threw', false, e));
+      }
+    }
+  }
+
   // ───────── subscriptions ─────────
 
   private requireAuth(): { token: string; userId: string } {
-    if (!this.auth)
-      throw new HermesWebSocketError(
-        "User topics require `auth` in the constructor options.",
-      );
+    if (!this.auth) throw new HermesWebSocketError("User topics require `auth` in the constructor options.");
     return this.auth;
   }
 
-  private addHandler(
-    topic: string,
-    target: string,
-    fn: Handler,
-    once: boolean,
-  ): Unsubscribe {
+  private addHandler(topic: string, target: string, fn: Handler, once: boolean): Unsubscribe {
     const wire = `${topic}.${target}`;
     let sub = this.subsByWire.get(wire);
     const created = sub === undefined;
@@ -460,8 +544,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
       this.subsByWire.delete(sub.wire);
       this.subsById.delete(sub.id);
     }
-    if (sub.live && this.status === "running")
-      this.send("unsubscribe", { id: sub.id });
+    if (sub.live && this.status === "running") this.send("unsubscribe", { id: sub.id });
   }
 
   /** New session = server forgot everything: fresh ids, nothing is live. */
@@ -530,18 +613,14 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
 
   private onClose(ev: CloseEvent): void {
     // 4003/4004: "connection unused" - reconnecting would not help.
-    const terminal =
-      (ev.code === 4003 || ev.code === 4004) &&
-      this.status !== "soft-reconnect";
+    const terminal = (ev.code === 4003 || ev.code === 4004) && this.status !== "soft-reconnect";
     if (terminal) {
-      this.log(
-        `Connection closed (${ev.code}): connection unused. Not reconnecting.`,
-      );
+      this.log(`Connection closed (${ev.code}): connection unused. Not reconnecting.`);
       this.shutdown();
     } else {
       this.scheduleReconnect();
     }
-    this.emit("close", ev);
+    this.emitEvent("close", ev);
   }
 
   /** Tear everything down and retry with backoff. Idempotent while waiting. */
@@ -551,22 +630,14 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
 
     if (this.retries >= this.maxRetries) {
       this.status = "closed";
-      this.fail(
-        new HermesWebSocketError(
-          "Max reconnect retries reached. Giving up.",
-          true,
-        ),
-      );
+      this.fail(new HermesWebSocketError("Max reconnect retries reached. Giving up.", true));
       return;
     }
 
     const attempt = this.retries++;
     let delay = 0; // first retry is immediate
     if (attempt > 0) {
-      delay = Math.min(
-        this.reconnectDelayMs * 2 ** (attempt - 1),
-        this.maxReconnectDelayMs,
-      );
+      delay = Math.min(this.reconnectDelayMs * 2 ** (attempt - 1), this.maxReconnectDelayMs);
       delay *= 0.8 + Math.random() * 0.4; // jitter ±20%
     }
 
@@ -608,16 +679,13 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
   /** Stale-connection detector: one interval per session, nothing is allocated per message. */
   private armWatchdog(keepaliveSec: number): void {
     clearInterval(this.watchdogTimer);
-    const staleAfter =
-      this.keepaliveTimeoutMs ?? (keepaliveSec > 0 ? keepaliveSec : 30) * 2_000;
+    const staleAfter = this.keepaliveTimeoutMs ?? (keepaliveSec > 0 ? keepaliveSec : 30) * 2_000;
     const period = Math.max(50, Math.ceil(staleAfter / 4));
     this.lastActivity = Date.now();
     this.watchdogTimer = setInterval(() => {
       const silence = Date.now() - this.lastActivity;
       if (silence > staleAfter) {
-        this.log(
-          `Connection stale. Silent for ${Math.round(silence / 1000)}s.`,
-        );
+        this.log(`Connection stale. Silent for ${Math.round(silence / 1000)}s.`);
         this.scheduleReconnect();
       }
     }, period);
@@ -638,26 +706,21 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
           this.onNotification(msg);
           break;
         case "keepalive":
-          this.emit("keepalive", msg);
+          this.emitEvent("keepalive", msg);
           break;
         case "welcome":
           this.onWelcome(msg);
           break;
         case "subscribeResponse": {
           const sub = this.subsById.get(msg.subscribeResponse.subscription.id);
-          this.emit(
-            "subscribe-response",
-            msg,
-            sub?.topic ?? "",
-            sub?.target ?? "",
-          );
+          this.emitSubscribeResponse(msg, sub?.topic ?? "", sub?.target ?? "");
           break;
         }
         case "unsubscribeResponse":
-          this.emit("unsubscribe-response", msg);
+          this.emitEvent("unsubscribe-response", msg);
           break;
         case "authenticateResponse":
-          this.emit("authenticate-response", msg);
+          this.emitEvent("authenticate-response", msg);
           break;
         case "reconnect":
           this.onReconnect(msg);
@@ -666,24 +729,20 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
           this.log("Unknown message type:", msg);
       }
     } catch (e) {
-      // malformed JSON or a throwing listener must not kill the socket handler
-      this.fail(
-        new HermesWebSocketError("Failed to handle incoming message", false, e),
-      );
+      // malformed JSON must not kill the socket handler
+      this.fail(new HermesWebSocketError("Failed to handle incoming message", false, e));
     }
   }
 
   private onNotification(msg: HermesMessageNotification): void {
-    this.emit("notification", msg);
+    this.emitEvent("notification", msg);
     if (msg.notification.type !== "pubsub") return;
 
     // A subscription exists only while it has listeners, so a hit always means work to do.
     const sub = this.subsById.get(msg.notification.subscription.id);
     if (sub === undefined) return;
 
-    const payload: unknown = JSON.parse(
-      (msg as HermesMessagePubsub).notification.pubsub,
-    );
+    const payload: unknown = JSON.parse((msg as HermesMessagePubsub).notification.pubsub);
     const handlers = sub.handlers; // snapshot: add/remove replace the array
     for (const h of handlers) {
       if (h.once) this.removeEntry(sub, h);
@@ -691,9 +750,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
         h.fn(payload, sub.target);
       } catch (e) {
         // one broken listener must not starve the others
-        this.fail(
-          new HermesWebSocketError(`Listener for ${sub.wire} threw`, false, e),
-        );
+        this.fail(new HermesWebSocketError(`Listener for ${sub.wire} threw`, false, e));
       }
     }
   }
@@ -715,9 +772,7 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
 
     const newSession = !soft;
     if (soft && msg.welcome.sessionId !== this.sessionId) {
-      this.log(
-        `sessionId changed during soft reconnect: ${this.sessionId} -> ${msg.welcome.sessionId}`,
-      );
+      this.log(`sessionId changed during soft reconnect: ${this.sessionId} -> ${msg.welcome.sessionId}`);
     }
     this.sessionId = msg.welcome.sessionId;
 
@@ -731,20 +786,42 @@ export class HermesWebSocket extends EventEmitter<HermesEvents> {
     }
 
     // Emit last: a throwing listener must not leave the session half set up.
-    this.emit("welcome", msg);
-    if (newSession) this.emit("new-session", msg.welcome.sessionId);
+    this.emitEvent("welcome", msg);
+    if (newSession) this.emitEvent("new-session", msg.welcome.sessionId);
   }
 
   private onReconnect(msg: HermesMessageReconnect): void {
     if (this.status === "running") this.open(msg.reconnect.url, true);
     else this.log(`Ignoring reconnect request in state ${this.status}`);
-    this.emit("reconnect", msg);
+    this.emitEvent("reconnect", msg);
   }
 
   // ───────── errors ─────────
 
   private fail(error: HermesWebSocketError): void {
-    if (this.listenerCount("error") > 0) this.emit("error", error);
-    else this.log(error.message, error.cause ?? "");
+    const slot = this.errorListeners;
+    if (slot === undefined) {
+      this.log(error.message, error.cause ?? "");
+      return;
+    }
+
+    if (!isEntryArray(slot)) {
+      if (slot.once) this.errorListeners = undefined;
+      try {
+        slot.fn(error);
+      } catch (e) {
+        this.log("Error listener threw:", e);
+      }
+      return;
+    }
+
+    for (const entry of slot) {
+      if (entry.once) this.removeErrorEntry(entry);
+      try {
+        entry.fn(error);
+      } catch (e) {
+        this.log("Error listener threw:", e);
+      }
+    }
   }
 }

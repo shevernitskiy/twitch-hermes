@@ -184,8 +184,7 @@ export interface HermesMessageUnsubscribe extends HermesMessageBase {
 }
 
 /** Every envelope the client may send. */
-export type HermesClientMessage =
-  HermesMessageAuthenticate | HermesMessageSubscribe | HermesMessageUnsubscribe;
+export type HermesClientMessage = HermesMessageAuthenticate | HermesMessageSubscribe | HermesMessageUnsubscribe;
 
 // ============================================================================
 // Typed PubSub Event Payloads
@@ -290,9 +289,7 @@ export interface MysteryGiftPurchaseEvent {
  * `"active-multipliers-updated"`, `"channel-settings-update"`.
  */
 export type CommunityPointsChannelEvent =
-  | CommunityGoalContributionEvent
-  | CustomRewardUpdatedEvent
-  | RewardRedeemedEvent;
+  CommunityGoalContributionEvent | CustomRewardUpdatedEvent | RewardRedeemedEvent;
 
 /** Minimal user reference embedded in PubSub payloads. */
 export interface PubSubUser {
@@ -437,8 +434,7 @@ export interface RewardRedeemedEvent {
  * `"active-multipliers-updated"`, `"channel-settings-update"`,
  * `"channel-last-viewed-content-updated"`, `"global-last-viewed-content-updated"`.
  */
-export type CommunityPointsUserEvent =
-  PointsEarnedEvent | ClaimAvailableEvent | ClaimClaimedEvent;
+export type CommunityPointsUserEvent = PointsEarnedEvent | ClaimAvailableEvent | ClaimClaimedEvent;
 
 /** Channel Points credited to the viewer. */
 export interface PointsEarnedEvent {
@@ -706,8 +702,7 @@ export interface HypeTrainExecution {
       id: string;
       token: string;
     } | null;
-    difficulty:
-      "EASY" | "MEDIUM" | "HARD" | "SUPER_HARD" | "INSANE" | (string & {});
+    difficulty: "EASY" | "MEDIUM" | "HARD" | "SUPER_HARD" | "INSANE" | (string & {});
     difficultySettings: {
       __typename: "HypeTrainDifficultySettings";
       difficulty: string;
@@ -859,8 +854,7 @@ export interface HypeTrainEndEvent {
  *
  * Note: `sub-gifts-sent` and `bits-usage-by-channel-v1` payloads omit the inner `type` discriminator.
  */
-export type LeaderboardEvent =
-  ClipsLeaderboardUpdateEvent | LeaderboardUpdateEvent;
+export type LeaderboardEvent = ClipsLeaderboardUpdateEvent | LeaderboardUpdateEvent;
 
 /** The clips leaderboard of a channel was recalculated. */
 export interface ClipsLeaderboardUpdateEvent {
@@ -889,8 +883,7 @@ export interface LeaderboardUpdateEvent {
   identifier: {
     domain: "sub-gifts-sent" | "bits-usage-by-channel-v1" | (string & {});
     grouping_key: string;
-    time_aggregation_unit:
-      "DAY" | "WEEK" | "MONTH" | "ALL_TIME" | (string & {});
+    time_aggregation_unit: "DAY" | "WEEK" | "MONTH" | "ALL_TIME" | (string & {});
     time_bucket: string;
   };
   top: {
@@ -950,8 +943,7 @@ export interface LeaderboardUpdateEvent {
  * Other notification event types: `"delete-notification"`,
  * `"read-notifications"`, `"read-all-notifications"`, `"update-notification"`.
  */
-export type OnSiteNotificationEvent =
-  CreateNotificationEvent | UpdateSummaryEvent;
+export type OnSiteNotificationEvent = CreateNotificationEvent | UpdateSummaryEvent;
 
 /** A new onsite notification was created. */
 export interface CreateNotificationEvent {
@@ -1029,8 +1021,7 @@ export type CreateNotifictaionEvent = CreateNotificationEvent;
 /**
  * 🔓 Topic: `pinned-chat-updates-v1.<channelId>` — pinned chat messages.
  */
-export type PinChatUpdatesEvent =
-  PinMessageEvent | UnpinMessageEvent | UpdateMessageEvent;
+export type PinChatUpdatesEvent = PinMessageEvent | UnpinMessageEvent | UpdateMessageEvent;
 
 /** A message was pinned in chat. */
 export interface PinMessageEvent {
@@ -1149,13 +1140,7 @@ export interface UnpinMessageEvent {
 
 /** 🔓 Topic: `polls.<channelId>` — polls of the channel. */
 export interface PollEvent {
-  type:
-    | "POLL_CREATE"
-    | "POLL_UPDATE"
-    | "POLL_COMPLETE"
-    | "POLL_ARCHIVE"
-    | "POLL_TERMINATE"
-    | "POLL_MODERATE";
+  type: "POLL_CREATE" | "POLL_UPDATE" | "POLL_COMPLETE" | "POLL_ARCHIVE" | "POLL_TERMINATE" | "POLL_MODERATE";
   data: {
     poll: {
       poll_id: string;
@@ -1181,13 +1166,7 @@ export interface PollEvent {
           cost: number;
         };
       };
-      status:
-        | "ACTIVE"
-        | "COMPLETED"
-        | "TERMINATED"
-        | "ARCHIVED"
-        | "MODERATED"
-        | "INVALID";
+      status: "ACTIVE" | "COMPLETED" | "TERMINATED" | "ARCHIVED" | "MODERATED" | "INVALID";
       choices: {
         choice_id: string;
         title: string;
@@ -1285,13 +1264,7 @@ export interface PredictionEvent {
         };
       }[];
       prediction_window_seconds: number;
-      status:
-        | "ACTIVE"
-        | "LOCKED"
-        | "RESOLVE_PENDING"
-        | "RESOLVED"
-        | "CANCEL_PENDING"
-        | "CANCELED";
+      status: "ACTIVE" | "LOCKED" | "RESOLVE_PENDING" | "RESOLVED" | "CANCEL_PENDING" | "CANCELED";
       title: string;
       winning_outcome_id: string | null;
     };
@@ -1499,8 +1472,7 @@ export interface DropProgressEvent {
 /**
  * 🔓 Topic: `video-playback-by-id.<channelId>` — live playback state of a channel.
  */
-export type VideoPlaybackByIdEvent =
-  ViewcountEvent | CommercialEvent | StreamUpEvent | StreamDownEvent;
+export type VideoPlaybackByIdEvent = ViewcountEvent | CommercialEvent | StreamUpEvent | StreamDownEvent;
 
 /** Periodic viewer count update. */
 export interface ViewcountEvent {
@@ -1537,8 +1509,7 @@ export interface StreamDownEvent {
 }
 
 /** 🔑 Topic: `viewer-milestones.<userId>` or `viewer-milestones.<userId>.<channelId>` — watch streaks and milestones. */
-export type ViewerMilestonesEvent =
-  StreakRecoveredEvent | ViewerMilestonesUpdateEvent | WatchStreakEvent;
+export type ViewerMilestonesEvent = StreakRecoveredEvent | ViewerMilestonesUpdateEvent | WatchStreakEvent;
 
 /** A broken watch streak was restored. */
 export interface StreakRecoveredEvent {
@@ -1823,10 +1794,7 @@ export type KnownExtensionTopics = [
 
 /** Any known topic prefix, regardless of its auth mode. */
 export type KnownTopic =
-  | KnownUserTopics[number]
-  | KnownDeviceTopics[number]
-  | KnownChannelTopics[number]
-  | KnownExtensionTopics[number];
+  KnownUserTopics[number] | KnownDeviceTopics[number] | KnownChannelTopics[number] | KnownExtensionTopics[number];
 
 // ============================================================================
 // Known PubSub Inner Event `type` Discriminators
@@ -1836,9 +1804,7 @@ export type KnownTopic =
  * Rewind video update statuses (`rewind-updates-v1`).
  */
 export type KnownRewindUpdateType =
-  | "REWIND_UPDATE_VIDEO_AVAILABLE"
-  | "REWIND_UPDATE_VIDEO_PRIVATE"
-  | "REWIND_UPDATE_VIDEO_DELETED";
+  "REWIND_UPDATE_VIDEO_AVAILABLE" | "REWIND_UPDATE_VIDEO_PRIVATE" | "REWIND_UPDATE_VIDEO_DELETED";
 
 /**
  * Complete union of known inner `type` values emitted across Twitch PubSub events.

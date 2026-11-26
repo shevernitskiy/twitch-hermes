@@ -46,9 +46,7 @@
   let dirty = false;
 
   // count of each entry as of the last load/flush, so only this tab's delta is added to the shared copy
-  const flushedCount = new Map(
-    Object.entries(catalog).map(([k, e]) => [k, e.count]),
-  );
+  const flushedCount = new Map(Object.entries(catalog).map(([k, e]) => [k, e.count]));
 
   const mergeInto = (s, e, delta) => {
     s.count += delta;
@@ -130,11 +128,7 @@
         sampleLen: 0,
         sample: null,
       };
-      console.info(
-        `%c[hermes] NEW event: ${key}`,
-        "color:#2f9e44;font-weight:bold",
-        payload,
-      );
+      console.info(`%c[hermes] NEW event: ${key}`, "color:#2f9e44;font-weight:bold", payload);
     } else {
       for (const [p, types] of Object.entries(fields)) {
         const known = e.fields[p];
@@ -145,9 +139,7 @@
           for (const t of types) {
             if (!known.includes(t)) {
               known.push(t);
-              console.warn(
-                `[hermes] ${key}: field ${p} got new type "${t}" (was ${known.slice(0, -1).join("|")})`,
-              );
+              console.warn(`[hermes] ${key}: field ${p} got new type "${t}" (was ${known.slice(0, -1).join("|")})`);
             }
           }
         }
@@ -177,8 +169,7 @@
   const redact = (v) => {
     if (v && typeof v === "object") {
       for (const k of Object.keys(v)) {
-        if (SECRET_KEY_RE.test(k) && typeof v[k] === "string")
-          v[k] = "[redacted]";
+        if (SECRET_KEY_RE.test(k) && typeof v[k] === "string") v[k] = "[redacted]";
         else redact(v[k]);
       }
     }
@@ -189,20 +180,14 @@
     entry.n = ++state.n;
     entry.t = new Date().toISOString();
     state.log.push(entry);
-    if (state.log.length > MAX_LOG + 500)
-      state.log.splice(0, state.log.length - MAX_LOG);
+    if (state.log.length > MAX_LOG + 500) state.log.splice(0, state.log.length - MAX_LOG);
   };
 
   const print = (e) => {
     if (state.mute.has(e.label)) return;
     const arrow = e.dir === "in" ? "←" : e.dir === "out" ? "→" : "•";
-    const color =
-      e.dir === "in" ? "#9146ff" : e.dir === "out" ? "#e8590c" : "#868e96";
-    console.log(
-      `%c[hermes #${e.sock}] ${arrow} ${e.label}`,
-      `color:${color}`,
-      e.inner ?? e.msg ?? e.info ?? "",
-    );
+    const color = e.dir === "in" ? "#9146ff" : e.dir === "out" ? "#e8590c" : "#868e96";
+    console.log(`%c[hermes #${e.sock}] ${arrow} ${e.label}`, `color:${color}`, e.inner ?? e.msg ?? e.info ?? "");
   };
 
   // ---------- message handling ----------
@@ -214,8 +199,7 @@
         sock,
         dir,
         label: "(non-json)",
-        raw:
-          typeof raw === "string" ? raw : Object.prototype.toString.call(raw),
+        raw: typeof raw === "string" ? raw : Object.prototype.toString.call(raw),
       };
       push(e);
       print(e);
@@ -235,19 +219,15 @@
     // NOTE: field names follow your old types; verify on the first run
     if (dir === "out" && type === "subscribe") {
       const topic = msg.subscribe?.pubsub?.topic ?? "?";
-      if (msg.subscribe?.id)
-        state.subs.set(`${sock}:${msg.subscribe.id}`, topic);
+      if (msg.subscribe?.id) state.subs.set(`${sock}:${msg.subscribe.id}`, topic);
       if (msg.id) state.subs.set(`${sock}:msg:${msg.id}`, topic);
       entry.topic = topic;
       entry.label = `subscribe ${topic}`;
     } else if (dir === "in" && type === "subscribeResponse") {
       const sr = msg.subscribeResponse ?? {};
       const topic =
-        state.subs.get(`${sock}:${sr.subscription?.id}`) ??
-        state.subs.get(`${sock}:msg:${msg.parentId}`) ??
-        "?";
-      if (sr.subscription?.id)
-        state.subs.set(`${sock}:${sr.subscription.id}`, topic);
+        state.subs.get(`${sock}:${sr.subscription?.id}`) ?? state.subs.get(`${sock}:msg:${msg.parentId}`) ?? "?";
+      if (sr.subscription?.id) state.subs.set(`${sock}:${sr.subscription.id}`, topic);
       sr.topic = topic; // same enrichment as in your types ("not original field")
       entry.topic = topic;
       entry.label = `subscribeResponse ${topic} (${sr.result ?? "?"})`;
@@ -257,8 +237,7 @@
       const n = msg.notification ?? {};
       if (n.type === "pubsub") {
         const topic = state.subs.get(`${sock}:${n.subscription?.id}`) ?? "?";
-        const inner =
-          typeof n.pubsub === "string" ? tryParse(n.pubsub) : n.pubsub;
+        const inner = typeof n.pubsub === "string" ? tryParse(n.pubsub) : n.pubsub;
         if (inner && typeof inner.data === "string") {
           const d = tryParse(inner.data);
           if (d !== undefined) inner.data = d;
@@ -368,18 +347,10 @@
     /** download message log (JSONL) and/or catalog (JSON) */
     download(what = "both") {
       if (what === "log" || what === "both") {
-        save(
-          `hermes-log-${stamp()}.jsonl`,
-          state.log.map((e) => JSON.stringify(e)).join("\n"),
-          "application/x-ndjson",
-        );
+        save(`hermes-log-${stamp()}.jsonl`, state.log.map((e) => JSON.stringify(e)).join("\n"), "application/x-ndjson");
       }
       if (what === "catalog" || what === "both") {
-        save(
-          `hermes-catalog-${stamp()}.json`,
-          JSON.stringify(catalog, null, 2),
-          "application/json",
-        );
+        save(`hermes-catalog-${stamp()}.json`, JSON.stringify(catalog, null, 2), "application/json");
       }
     },
     /** table of all seen (topic, event type) pairs */
@@ -394,10 +365,7 @@
             firstSeen: e.firstSeen,
             lastSeen: e.lastSeen,
           }))
-          .sort(
-            (a, b) =>
-              a.base.localeCompare(b.base) || a.type.localeCompare(b.type),
-          ),
+          .sort((a, b) => a.base.localeCompare(b.base) || a.type.localeCompare(b.type)),
       );
     },
     /** full topics the web client subscribed to in this session */
@@ -407,9 +375,7 @@
     /** topic bases seen in subscribe messages that are absent from your known lists */
     unknownTopics(...knownLists) {
       const known = new Set(knownLists.flat());
-      return [...new Set(api.topics().map((t) => t.split(".")[0]))].filter(
-        (b) => !known.has(b),
-      );
+      return [...new Set(api.topics().map((t) => t.split(".")[0]))].filter((b) => !known.has(b));
     },
     /** don't print these labels (still stored), e.g. api.mute("video-playback-by-id.123 viewcount") */
     mute(...labels) {
@@ -433,7 +399,5 @@
     if (ev.altKey && ev.shiftKey && ev.code === "KeyH") api.download("both");
   });
 
-  console.log(
-    "[hermes] sniffer ready: __hermes.summary() / .download() / .topics(); hotkey Alt+Shift+H = download",
-  );
+  console.log("[hermes] sniffer ready: __hermes.summary() / .download() / .topics(); hotkey Alt+Shift+H = download");
 })();
